@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  odooConfig  OdooConfig?
+  projects    Project[]
+}
+
+model OdooConfig {
+  id       String @id @default(cuid())
+  userId   String @unique
+  url      String
+  dbName   String
+  username String
+  apiKey   String
+  user     User   @relation(fields: [userId], references: [id])
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  odooId    Int
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
