@@ -38,6 +38,8 @@ RUN npx tsc
 FROM node:22-alpine AS runner
 WORKDIR /app
 
+RUN apk add --no-cache bash
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 appuser
 
