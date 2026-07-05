@@ -6,10 +6,13 @@ export class UserModel {
   }
 
   static async findById(id: string) {
-    return prisma.user.findUnique({ where: { id } });
+    return prisma.user.findUnique({
+      where: { id },
+      include: { odooConfig: true },
+    });
   }
 
-  static async create(data: { email: string; name: string }) {
+  static async create(data: { email: string; name: string; password: string }) {
     return prisma.user.create({ data });
   }
 }

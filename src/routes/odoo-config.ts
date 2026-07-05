@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { OdooConfigController } from "../controllers/OdooConfigController.js";
+import { OdooConfigController } from "../controllers/odooconfigcontroller.js";
 
 export async function odooConfigRoutes(app: FastifyInstance) {
   app.post("/config", OdooConfigController.save);
