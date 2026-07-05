@@ -12,4 +12,11 @@ export class OdooConfigModel {
       create: { userId, ...data },
     });
   }
+
+  static async updateGeminiKey(userId: string, geminiApiKey: string) {
+    return prisma.odooConfig.update({
+      where: { userId },
+      data: { geminiApiKey },
+    });
+  }
 }

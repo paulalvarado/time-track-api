@@ -111,6 +111,41 @@ export class OdooService {
   }
 
   /**
+   * Obtiene el user_id (res.users) a partir de un employee_id (hr.employee).
+   * Retorna null si el empleado no tiene usuario vinculado.
+   */
+  async fetchEmployeeUserId(employeeId: number): Promise<number | null> {
+    const uid = await this.authenticate();
+    return new Promise((resolve, reject) => {
+      const objectClient = xmlrpc.createClient({ url: `${this.url}/xmlrpc/2/object` });
+      objectClient.methodCall(
+        "execute_kw",
+        [this.db, uid, this.apiKey, "hr.employee", "read", [[employeeId], ["user_id"]]],
+        (err: Error | null, result: any) => {
+          if (err) return reject(new Error(`Odoo read employee error: ${err.message}`));
+          if (!result || result.length === 0) return resolve(null);
+          const user = result[0]?.user_id;
+          if (Array.isArray(user) && user.length >= 2) return resolve(user[0]);
+          if (typeof user === "number") return resolve(user);
+          resolve(null);
+        },
+      );
+    });
+  }
+
+  /**
+   * Obtiene empleados de Odoo (hr.employee) con nombre e ID.
+   */
+  async fetchEmployees(): Promise<{ id: number; name: string; userId?: number }[]> {
+    const employees = await this._searchRead("hr.employee", ["id", "name", "user_id"]);
+    return employees.map((e: any) => ({
+      id: e.id,
+      name: e.name || `Employee #${e.id}`,
+      userId: Array.isArray(e.user_id) ? e.user_id[0] : (typeof e.user_id === "number" ? e.user_id : undefined),
+    }));
+  }
+
+  /**
    * Obtiene usuarios de Odoo (res.users) con nombre e información básica.
    */
   async fetchUsers(): Promise<{ id: number; name: string; email: string }[]> {
@@ -157,6 +192,25 @@ export class OdooService {
           if (err) return reject(new Error(`Odoo read error: ${err.message}`));
           if (!result || result.length === 0) return resolve(null);
           resolve(result[0]);
+        },
+      );
+    });
+  }
+
+  /**
+   * Crea un registro en Odoo mediante XML-RPC create.
+   * Retorna el ID del registro creado.
+   */
+  async createRecord(model: string, values: Record<string, any>): Promise<number> {
+    const uid = await this.authenticate();
+    return new Promise((resolve, reject) => {
+      const objectClient = xmlrpc.createClient({ url: `${this.url}/xmlrpc/2/object` });
+      objectClient.methodCall(
+        "execute_kw",
+        [this.db, uid, this.apiKey, model, "create", [values]],
+        (err: Error | null, result: number) => {
+          if (err) return reject(new Error(`Odoo create error: ${err.message}`));
+          resolve(result);
         },
       );
     });

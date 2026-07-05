@@ -158,10 +158,22 @@ export class SyncService {
             try {
               const timesheets = await odoo.fetchTimesheets(taskId);
               for (const ts of timesheets) {
-                const userId =
-                  typeof ts.user_id === "number"
-                    ? ts.user_id
-                    : ts.user_id?.[0] ?? null;
+                // Prefer employee_id over user_id
+                let userId: number | null = null;
+                if (ts.employee_id) {
+                  const empId = Array.isArray(ts.employee_id) ? ts.employee_id[0] : ts.employee_id;
+                  try {
+                    const linkedUserId = await odoo.fetchEmployeeUserId(empId);
+                    userId = linkedUserId ?? empId;
+                  } catch {
+                    userId = empId;
+                  }
+                }
+                // Fallback to user_id only if employee_id is not available
+                if (userId === null && ts.user_id) {
+                  userId = typeof ts.user_id === "number" ? ts.user_id : ts.user_id?.[0] ?? null;
+                }
+
                 await prisma.syncTimesheet.upsert({
                   where: {
                     odooId_odooConfigId: { odooId: ts.id, odooConfigId },

@@ -79,7 +79,7 @@ export class TimesheetController {
     if (name !== undefined) values.name = name;
     if (hours !== undefined) values.unit_amount = hours;
     if (date !== undefined) values.date = date;
-    if (userId !== undefined) values.user_id = userId;
+    if (userId !== undefined) values.employee_id = userId;
 
     if (Object.keys(values).length === 0) {
       return reply.status(400).send({ error: "No fields to update" });
@@ -124,5 +124,84 @@ export class TimesheetController {
         date: date ?? null,
       },
     });
+  }
+
+  /**
+   * POST /api/projects/:odooId/tasks/:taskId/timesheets/batch
+   *
+   * Crea múltiples partes de horas en Odoo (una por una) y las replica en DB local.
+   * Cada parte se envía a Odoo primero; solo si Odoo responde OK se guarda localmente.
+   */
+  static async batchCreate(req: any, reply: any) {
+    try { await req.jwtVerify(); } catch { return reply.status(401).send({ error: "Unauthorized" }); }
+    const { sub } = req.user as { sub: string };
+    const { odooId, taskId } = req.params as { odooId: string; taskId: string };
+
+    const config = await prisma.odooConfig.findUnique({ where: { userId: sub } });
+    if (!config) return reply.status(404).send({ error: "Odoo not configured" });
+
+    const { entries } = req.body as {
+      entries: { concept: string; hours: number; date: string; userId?: number }[];
+    };
+
+    if (!entries || entries.length === 0) {
+      return reply.status(400).send({ error: "No entries provided" });
+    }
+
+    const odoo = new OdooService({
+      url: config.url, dbName: config.dbName,
+      username: config.username, apiKey: config.apiKey,
+    });
+
+    await odoo.authenticate();
+
+    // Obtener el odooUid del usuario autenticado
+    const state = await prisma.syncState.findUnique({ where: { odooConfigId: config.id } });
+    const odooUid = state?.odooUid ?? null;
+
+    const results: { index: number; concept: string; hours: number; date: string; success: boolean; odooId?: number; error?: string }[] = [];
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const values: Record<string, any> = {
+        task_id: parseInt(taskId),
+        name: entry.concept,
+        unit_amount: entry.hours,
+        date: entry.date,
+        user_id: entry.userId || odooUid,
+      };
+
+      try {
+        const newOdooId = await odoo.createRecord("account.analytic.line", values);
+
+        // Guardar en DB local
+        await prisma.syncTimesheet.create({
+          data: {
+            odooId: newOdooId,
+            name: entry.concept,
+            unitAmount: entry.hours,
+            date: entry.date,
+            userOdooId: entry.userId || odooUid,
+            taskOdooId: parseInt(taskId),
+            odooConfigId: config.id,
+          },
+        });
+
+        results.push({ index: i, concept: entry.concept, hours: entry.hours, date: entry.date, success: true, odooId: newOdooId });
+      } catch (err: any) {
+        results.push({ index: i, concept: entry.concept, hours: entry.hours, date: entry.date, success: false, error: err.message });
+      }
+    }
+
+    const succeeded = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+
+    if (failed === 0) {
+      return reply.status(200).send({ ok: true, message: `All ${succeeded} entries created successfully.`, results });
+    } else if (succeeded > 0) {
+      return reply.status(200).send({ ok: true, partial: true, message: `${succeeded} entries created, ${failed} failed.`, results });
+    } else {
+      return reply.status(502).send({ ok: false, message: "All entries failed.", results });
+    }
   }
 }

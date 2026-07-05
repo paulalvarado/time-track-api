@@ -183,25 +183,68 @@ export class SyncController {
     const config = await prisma.odooConfig.findUnique({ where: { userId: sub } });
     if (!config) return reply.status(200).send({ timesheets: [] });
 
-    const userCache = new Map<number, string>();
-
     const raw = await prisma.syncTimesheet.findMany({
       where: { odooConfigId: config.id, taskOdooId: parseInt(taskId) },
       orderBy: { date: "desc" },
     });
 
+    // Build user name cache: first from task assignees, then from Odoo
+    const userCache = new Map<number, string>();
+    const userIds = [...new Set(raw.map((t) => t.userOdooId).filter((id): id is number => id !== null))];
+    const nullOdooIds = raw.filter((t) => t.userOdooId === null).map((t) => t.odooId);
+
+    // 1. Look up from task assignees
+    const tasks = await prisma.syncTask.findMany({
+      where: { odooConfigId: config.id },
+      select: { assigneeIds: true },
+    });
+    for (const task of tasks) {
+      const assignees = task.assigneeIds as [number, string][];
+      for (const [id, name] of assignees) {
+        if (!userCache.has(id)) userCache.set(id, name);
+      }
+    }
+
+    // 2. Try to fetch names from Odoo (res.users) for known user IDs
+    const missingIds = userIds.filter((id) => !userCache.has(id));
+    if (missingIds.length > 0) {
+      try {
+        const odoo = new OdooService({
+          url: config.url, dbName: config.dbName,
+          username: config.username, apiKey: config.apiKey,
+        });
+        await odoo.authenticate();
+        const userNames = await odoo.fetchUserNames(missingIds);
+        userNames.forEach((name, id) => { if (!userCache.has(id)) userCache.set(id, name); });
+      } catch (err) {
+        console.error("[Timesheets] Failed to fetch user names from Odoo:", err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    // 3. Build employee name lookup from employees catalog (synced from hr.employee)
+    const employeeById = new Map<number, string>(); // employee_id → employee name
+    const employeeCatalog = await prisma.catalog.findUnique({
+      where: { name_odooConfigId: { name: "employees", odooConfigId: config.id } },
+      include: { items: true },
+    });
+    if (employeeCatalog) {
+      for (const item of employeeCatalog.items) {
+        employeeById.set(parseInt(item.key), item.value);
+      }
+    }
+
     const timesheets = raw.map((t) => {
-      // Resolve user name if we haven't seen this user before
-      if (t.userOdooId && !userCache.has(t.userOdooId)) {
-        // Fetch from sync task assignees or leave as User #
-        userCache.set(t.userOdooId, `User #${t.userOdooId}`);
+      let userName = "";
+      if (t.userOdooId) {
+        // Try employee catalog first (userOdooId may be employee_id or user_id)
+        userName = employeeById.get(t.userOdooId) || userCache.get(t.userOdooId) || `User #${t.userOdooId}`;
       }
       return {
         id: t.odooId,
         name: t.name || "",
         hours: t.unitAmount,
         date: t.date || null,
-        userName: t.userOdooId ? userCache.get(t.userOdooId) || `User #${t.userOdooId}` : "",
+        userName,
         userId: t.userOdooId ?? null,
       };
     });
@@ -270,6 +313,29 @@ export class SyncController {
       syncing: state?.syncing || false,
       lastSyncAt: state?.lastSyncAt?.toISOString() || null,
       error: state?.error || null,
+      odooUid: state?.odooUid ?? null,
     });
+  }
+
+  /** GET /api/sync/hours — total hours tracked by the current user */
+  static async totalHours(req: FastifyRequest, reply: FastifyReply) {
+    try { await req.jwtVerify(); } catch { return reply.status(401).send({ error: "Unauthorized" }); }
+    const { sub } = req.user as { sub: string };
+
+    const config = await prisma.odooConfig.findUnique({ where: { userId: sub } });
+    if (!config) return reply.status(200).send({ totalHours: 0 });
+
+    const state = await prisma.syncState.findUnique({ where: { odooConfigId: config.id } });
+    const odooUid = state?.odooUid ?? null;
+
+    if (odooUid === null) return reply.status(200).send({ totalHours: 0 });
+
+    const result = await prisma.syncTimesheet.aggregate({
+      where: { odooConfigId: config.id, userOdooId: odooUid },
+      _sum: { unitAmount: true },
+    });
+
+    const totalHours = result._sum.unitAmount ?? 0;
+    return reply.status(200).send({ totalHours });
   }
 }

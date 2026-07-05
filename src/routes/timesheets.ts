@@ -4,4 +4,5 @@ import { TimesheetController } from "../controllers/timesheetcontroller.js";
 export async function timesheetRoutes(app: FastifyInstance) {
   app.get("/:odooId/tasks/:taskId/timesheets", TimesheetController.listByTask);
   app.put("/:odooId/tasks/:taskId/timesheets/:timesheetId", TimesheetController.update);
+  app.post("/:odooId/tasks/:taskId/timesheets/batch", TimesheetController.batchCreate);
 }

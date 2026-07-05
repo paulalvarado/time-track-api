@@ -25,6 +25,7 @@ model OdooConfig {
   dbName      String
   username    String
   apiKey      String
+  geminiApiKey String?
   user        User          @relation(fields: [userId], references: [id])
   syncState   SyncState?
   syncProjects SyncProject[]

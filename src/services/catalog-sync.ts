@@ -9,7 +9,8 @@ type CatalogDefinition = {
 
 const CATALOG_DEFINITIONS: CatalogDefinition[] = [
   { name: "priority", model: "project.task", field: "priority" },
-  { name: "users", model: "res.users", field: "" }, // especial: se obtiene con fetchUsers
+  { name: "users", model: "res.users", field: "" }, // especial: usa fetchUsers()
+  { name: "employees", model: "hr.employee", field: "" }, // especial: usa fetchEmployees()
 ];
 
 export class CatalogSyncService {
@@ -33,6 +34,8 @@ export class CatalogSyncService {
       try {
         if (catalogDef.name === "users") {
           await this._syncUserCatalog(odoo, odooConfigId, catalogDef);
+        } else if (catalogDef.name === "employees") {
+          await this._syncEmployeeCatalog(odoo, odooConfigId, catalogDef);
         } else {
           await this._syncSelectionCatalog(odoo, odooConfigId, catalogDef);
         }
@@ -106,6 +109,34 @@ export class CatalogSyncService {
 
     // Limpiar usuarios que ya no existen
     const existingIds = new Set(users.map((u) => String(u.id)));
+    const currentItems = await prisma.catalogItem.findMany({ where: { catalogId: catalog.id } });
+    for (const ci of currentItems) {
+      if (!existingIds.has(ci.key)) {
+        await prisma.catalogItem.delete({ where: { id: ci.id } });
+      }
+    }
+  }
+
+  private static async _syncEmployeeCatalog(
+    odoo: OdooService, odooConfigId: string, def: CatalogDefinition,
+  ): Promise<void> {
+    const employees = await odoo.fetchEmployees();
+    const catalog = await prisma.catalog.upsert({
+      where: { name_odooConfigId: { name: def.name, odooConfigId } },
+      update: { lastSyncAt: new Date() },
+      create: { name: def.name, odooConfigId, lastSyncAt: new Date() },
+    });
+    for (const emp of employees) {
+      const key = String(emp.id);
+      const extra: any = {};
+      if (emp.userId) extra.userId = emp.userId;
+      await prisma.catalogItem.upsert({
+        where: { catalogId_key: { catalogId: catalog.id, key } },
+        update: { value: emp.name, extra: Object.keys(extra).length > 0 ? extra : undefined },
+        create: { catalogId: catalog.id, key, value: emp.name, extra: Object.keys(extra).length > 0 ? extra : undefined },
+      });
+    }
+    const existingIds = new Set(employees.map((e) => String(e.id)));
     const currentItems = await prisma.catalogItem.findMany({ where: { catalogId: catalog.id } });
     for (const ci of currentItems) {
       if (!existingIds.has(ci.key)) {

@@ -11,6 +11,7 @@ import { projectRoutes } from "./routes/projects.js";
 import { syncRoutes } from "./routes/sync.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { timesheetRoutes } from "./routes/timesheets.js";
+import { aiRoutes } from "./routes/ai.js";
 
 export async function buildApp() {
   const app = Fastify({ logger: true });
@@ -40,6 +41,7 @@ export async function buildApp() {
   await app.register(syncRoutes, { prefix: "/api" });
   await app.register(taskRoutes, { prefix: "/api/projects" });
   await app.register(timesheetRoutes, { prefix: "/api/projects" });
+  await app.register(aiRoutes, { prefix: "/api" });
 
   app.get("/api/health", async () => ({ status: "ok" }));
   return app;
