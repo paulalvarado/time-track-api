@@ -1,5 +1,5 @@
 import { pgTable, text, json, timestamp } from "drizzle-orm/pg-core";
-import { Migration } from "../src/lib/Migration.js";
+import { Migration } from "../src/lib/migration.js";
 
 export const catalogs = pgTable("Catalog", {
   id: text("id").primaryKey(),

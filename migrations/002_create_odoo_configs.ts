@@ -1,5 +1,5 @@
 import { pgTable, text } from "drizzle-orm/pg-core";
-import { Migration } from "../src/lib/Migration.js";
+import { Migration } from "../src/lib/migration.js";
 import { users } from "./001_create_users.js";
 
 export const odooConfigs = pgTable("OdooConfig", {
