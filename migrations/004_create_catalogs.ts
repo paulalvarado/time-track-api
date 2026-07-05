@@ -6,6 +6,7 @@ export const catalogs = pgTable("Catalog", {
   name: text("name").notNull(),
   odooConfigId: text("odooConfigId").notNull(),
   lastSyncAt: timestamp("lastSyncAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 
 export const catalogItems = pgTable("CatalogItem", {
@@ -14,6 +15,7 @@ export const catalogItems = pgTable("CatalogItem", {
   key: text("key").notNull(),
   value: text("value").notNull(),
   extra: json("extra"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 
 export default class CreateCatalogsTable extends Migration {
