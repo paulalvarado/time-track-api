@@ -49,6 +49,7 @@ RUN npm install --ignore-scripts --legacy-peer-deps --omit=dev
 
 # Copiar el cliente de Prisma ya generado desde el stage deps
 COPY --from=deps /app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
 
 # Copiar archivos necesarios para migraciones en producción (tsx corre .ts directo)
 COPY --from=builder /app/src ./src
