@@ -202,10 +202,57 @@ export class SyncController {
         hours: t.unitAmount,
         date: t.date || null,
         userName: t.userOdooId ? userCache.get(t.userOdooId) || `User #${t.userOdooId}` : "",
+        userId: t.userOdooId ?? null,
       };
     });
 
     return reply.status(200).send({ timesheets });
+  }
+
+  /** GET /api/sync/projects/:projectId/tasks/:taskId — single cached task */
+  static async getTask(req: any, reply: any) {
+    try { await req.jwtVerify(); } catch { return reply.status(401).send({ error: "Unauthorized" }); }
+    const { sub } = req.user as { sub: string };
+    const { projectId, taskId } = req.params as { projectId: string; taskId: string };
+
+    const config = await prisma.odooConfig.findUnique({ where: { userId: sub } });
+    if (!config) return reply.status(200).send({ task: null, projectName: null });
+
+    const [task, syncProject] = await Promise.all([
+      prisma.syncTask.findUnique({
+        where: { odooId_odooConfigId: { odooId: parseInt(taskId), odooConfigId: config.id } },
+      }),
+      prisma.syncProject.findUnique({
+        where: { odooId_odooConfigId: { odooId: parseInt(projectId), odooConfigId: config.id } },
+        select: { name: true },
+      }),
+    ]);
+
+    if (!task) return reply.status(200).send({ task: null, projectName: syncProject?.name || null });
+
+    let stageName = "Uncategorized";
+    if (task.stageOdooId) {
+      const stage = await prisma.syncStage.findUnique({
+        where: { odooId_odooConfigId: { odooId: task.stageOdooId, odooConfigId: config.id } },
+        select: { name: true },
+      });
+      stageName = stage?.name || "Uncategorized";
+    }
+
+    return reply.status(200).send({
+      task: {
+        id: task.odooId,
+        name: task.name,
+        description: task.description || "",
+        stageId: task.stageOdooId,
+        stageName,
+        assignees: (task.assigneeIds as [number, string][]) || [],
+        priority: task.priority || "0",
+        deadline: task.deadline || null,
+        color: task.color ?? null,
+      },
+      projectName: syncProject?.name || null,
+    });
   }
 
   /** GET /api/sync/status — sync status for the current user */

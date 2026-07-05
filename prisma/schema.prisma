@@ -32,6 +32,7 @@ model OdooConfig {
   syncTasks   SyncTask[]
   syncTimesheets SyncTimesheet[]
   syncProjectStages SyncProjectStage[]
+  catalogs          Catalog[]
 }
 
 model Project {
@@ -121,6 +122,30 @@ model SyncTask {
 
   @@unique([odooId, odooConfigId])
   @@index([projectOdooId, odooConfigId])
+}
+
+model Catalog {
+  id           String        @id @default(cuid())
+  name         String
+  odooConfigId String
+  odooConfig   OdooConfig    @relation(fields: [odooConfigId], references: [id])
+  lastSyncAt   DateTime?
+  items        CatalogItem[]
+  createdAt    DateTime      @default(now())
+
+  @@unique([name, odooConfigId])
+}
+
+model CatalogItem {
+  id        String   @id @default(cuid())
+  catalogId String
+  catalog   Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  key       String
+  value     String
+  extra     Json?
+  createdAt DateTime @default(now())
+
+  @@unique([catalogId, key])
 }
 
 model SyncTimesheet {

@@ -15,4 +15,12 @@ export class UserModel {
   static async create(data: { email: string; name: string; password: string }) {
     return prisma.user.create({ data });
   }
+
+  static async updatePassword(id: string, password: string) {
+    return prisma.user.update({ where: { id }, data: { password } });
+  }
+
+  static async updateName(id: string, name: string) {
+    return prisma.user.update({ where: { id }, data: { name } });
+  }
 }

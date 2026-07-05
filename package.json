@@ -19,9 +19,11 @@
     "migrate:down": "tsx src/commands/migraterollback.ts --down",
     "migrate:refresh": "tsx src/commands/migraterefresh.ts",
     "migrate:rollback": "tsx src/commands/migraterollback.ts",
-    "odoo:sync": "npx tsx src/commands/syncworker.ts"
+    "odoo:sync": "npx tsx src/commands/syncworker.ts",
+    "odoo:sync-catalogs": "npx tsx src/commands/synccatalogs.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "10.1.0",
     "@fastify/jwt": "9.1.0",
     "@prisma/client": "6.19.3",
@@ -30,6 +32,8 @@
     "dotenv": "17.4.2",
     "drizzle-orm": "0.45.2",
     "fastify": "5.9.0",
+    "overlayscrollbars": "^2.16.0",
+    "overlayscrollbars-react": "^0.5.6",
     "pg": "8.22.0",
     "tsx": "4.23.0",
     "xmlrpc": "1.3.2"

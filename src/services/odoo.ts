@@ -86,6 +86,82 @@ export class OdooService {
     return this._searchRead("account.analytic.line", ["id", "name", "unit_amount", "date", "employee_id", "user_id"], [["task_id", "=", taskId]]);
   }
 
+  /**
+   * Obtiene las opciones de un campo selection de un modelo de Odoo.
+   * Útil para catálogos como prioridades, tipos, etc.
+   */
+  async fetchFieldSelection(model: string, field: string): Promise<{ key: string; value: string }[]> {
+    const uid = await this.authenticate();
+    return new Promise((resolve, reject) => {
+      const objectClient = xmlrpc.createClient({ url: `${this.url}/xmlrpc/2/object` });
+      objectClient.methodCall(
+        "execute_kw",
+        [this.db, uid, this.apiKey, model, "fields_get", [field], { attributes: ["selection", "string", "type"] }],
+        (err: Error | null, result: any) => {
+          if (err) return reject(new Error(`Odoo fields_get error: ${err.message}`));
+          const fieldInfo = result?.[field];
+          if (!fieldInfo?.selection) return resolve([]);
+          const items: { key: string; value: string }[] = fieldInfo.selection.map(
+            ([k, v]: [string, string]) => ({ key: String(k), value: String(v) }),
+          );
+          resolve(items);
+        },
+      );
+    });
+  }
+
+  /**
+   * Obtiene usuarios de Odoo (res.users) con nombre e información básica.
+   */
+  async fetchUsers(): Promise<{ id: number; name: string; email: string }[]> {
+    const users = await this._searchRead("res.users", ["id", "name", "login"]);
+    return users.map((u: any) => ({
+      id: u.id,
+      name: (u.name || u.login || `User #${u.id}`).includes("@")
+        ? (u.name || u.login || `User #${u.id}`).split("@")[0]
+        : (u.name || u.login || `User #${u.id}`),
+      email: u.login || "",
+    }));
+  }
+
+  /**
+   * Actualiza un registro en Odoo mediante XML-RPC write.
+   * Retorna true si la operación fue exitosa.
+   */
+  async updateRecord(model: string, id: number, values: Record<string, any>): Promise<boolean> {
+    const uid = await this.authenticate();
+    return new Promise((resolve, reject) => {
+      const objectClient = xmlrpc.createClient({ url: `${this.url}/xmlrpc/2/object` });
+      objectClient.methodCall(
+        "execute_kw",
+        [this.db, uid, this.apiKey, model, "write", [[id], values]],
+        (err: Error | null, result: boolean) => {
+          if (err) return reject(new Error(`Odoo write error: ${err.message}`));
+          resolve(result);
+        },
+      );
+    });
+  }
+
+  /**
+   * Lee un registro específico de Odoo por ID.
+   */
+  async readRecord(model: string, id: number, fields: string[]): Promise<any> {
+    const uid = await this.authenticate();
+    return new Promise((resolve, reject) => {
+      const objectClient = xmlrpc.createClient({ url: `${this.url}/xmlrpc/2/object` });
+      objectClient.methodCall(
+        "execute_kw",
+        [this.db, uid, this.apiKey, model, "read", [[id], fields]],
+        (err: Error | null, result: any[]) => {
+          if (err) return reject(new Error(`Odoo read error: ${err.message}`));
+          if (!result || result.length === 0) return resolve(null);
+          resolve(result[0]);
+        },
+      );
+    });
+  }
+
   private async _searchRead(model: string, fields: string[], domain: any[] = []): Promise<any[]> {
     const uid = await this.authenticate();
     return new Promise((resolve, reject) => {
