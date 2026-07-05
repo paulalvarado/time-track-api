@@ -2,7 +2,7 @@ import { pgTable, text } from "drizzle-orm/pg-core";
 import { Migration } from "../src/lib/migration.js";
 import { users } from "./001_create_users.js";
 
-export const odooConfigs = pgTable("odooconfig", {
+export const odooConfigs = pgTable("OdooConfig", {
   id: text("id").primaryKey(),
   userId: text("userId").notNull().unique().references(() => users.id),
   url: text("url").notNull(),
@@ -17,6 +17,6 @@ export default class CreateOdooConfigsTable extends Migration {
   }
 
   override async down() {
-    await this.dropTable("odooconfig");
+    await this.dropTable("OdooConfig");
   }
 }

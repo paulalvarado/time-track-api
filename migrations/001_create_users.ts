@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { Migration } from "../src/lib/migration.js";
 
-export const users = pgTable("user", {
+export const users = pgTable("User", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
@@ -15,6 +15,6 @@ export default class CreateUsersTable extends Migration {
   }
 
   override async down() {
-    await this.dropTable("user");
+    await this.dropTable("User");
   }
 }

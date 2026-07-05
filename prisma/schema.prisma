@@ -17,7 +17,7 @@ model User {
   odooConfig   OdooConfig?
   projects     Project[]
 
-  @@map("user")
+  @@map("User")
 }
 
 model OdooConfig {
@@ -37,7 +37,7 @@ model OdooConfig {
   syncProjectStages SyncProjectStage[]
   catalogs          Catalog[]
 
-  @@map("odooconfig")
+  @@map("OdooConfig")
 }
 
 model Project {
@@ -51,7 +51,7 @@ model Project {
   user        User     @relation(fields: [userId], references: [id])
 
   @@unique([odooId, userId])
-  @@map("project")
+  @@map("Project")
 }
 
 model SyncProject {
@@ -145,7 +145,7 @@ model Catalog {
   createdAt    DateTime      @default(now())
 
   @@unique([name, odooConfigId])
-  @@map("catalog")
+  @@map("Catalog")
 }
 
 model CatalogItem {
@@ -158,7 +158,7 @@ model CatalogItem {
   createdAt DateTime @default(now())
 
   @@unique([catalogId, key])
-  @@map("catalogitem")
+  @@map("CatalogItem")
 }
 
 model SyncTimesheet {
