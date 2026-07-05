@@ -30,15 +30,15 @@ export abstract class Migration {
       })
       .filter(Boolean);
     const sql = `CREATE TABLE IF NOT EXISTS "${cfg.name}" (${[...cols, ...fks].join(", ")});`;
-    this.db.execute(sql);
+    await this.db.execute(sql);
   }
 
   protected async dropTable(name: string): Promise<void> {
-    this.db.execute(`DROP TABLE IF EXISTS "${name}"`);
+    await this.db.execute(`DROP TABLE IF EXISTS "${name}"`);
   }
 
   protected async execute(sql: string): Promise<void> {
-    this.db.execute(sql);
+    await this.db.execute(sql);
   }
 
   abstract run(): Promise<void>;
