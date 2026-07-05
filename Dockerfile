@@ -63,8 +63,8 @@ COPY --from=builder /app/dist ./dist
 USER appuser
 
 ENV NODE_ENV=production
-ENV PORT=3000
-EXPOSE 3000
+ENV PORT=80
+EXPOSE 80
 
 # Ejecuta migraciones y luego arranca la API
 CMD ["npm", "run", "start:migrate"]
