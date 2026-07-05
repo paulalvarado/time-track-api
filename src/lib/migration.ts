@@ -2,6 +2,15 @@ import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { AnyPgTable } from "drizzle-orm/pg-core";
 import { getTableConfig } from "drizzle-orm/pg-core";
 
+const TYPE_MAP: Record<string, string> = {
+  string: "TEXT",
+  number: "INTEGER",
+  integer: "INTEGER",
+  date: "TIMESTAMP",
+  boolean: "BOOLEAN",
+  json: "JSONB",
+};
+
 export abstract class Migration {
   protected db: PgDatabase<any>;
 
@@ -12,12 +21,20 @@ export abstract class Migration {
   protected async createTable(table: AnyPgTable): Promise<void> {
     const cfg = getTableConfig(table);
     const cols = cfg.columns.map((col) => {
-      let def = `"${col.name}" ${col.dataType.toUpperCase()}`;
+      const pgType = TYPE_MAP[col.dataType] || col.dataType.toUpperCase();
+      let def = `"${col.name}" ${pgType}`;
       if (col.notNull) def += " NOT NULL";
       if (col.primary) def += " PRIMARY KEY";
       if (col.isUnique) def += " UNIQUE";
       if (col.default !== undefined) {
-        def += ` DEFAULT ${typeof col.default === "string" ? `'${col.default}'` : col.default}`;
+        if (typeof col.default === "string") {
+          def += ` DEFAULT '${col.default}'`;
+        } else if (typeof col.default === "number" || typeof col.default === "boolean") {
+          def += ` DEFAULT ${col.default}`;
+        } else {
+          // Drizzle SQL fragment (ej: defaultNow()) → NOW()
+          def += " DEFAULT NOW()";
+        }
       }
       return def;
     });
