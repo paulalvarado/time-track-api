@@ -32,7 +32,7 @@ export class OdooService {
       commonClient.methodCall(
         "authenticate",
         [this.db, this.username, this.apiKey, {}],
-        (err: Error | null, uid: number) => {
+        (err: any, uid: number) => {
           if (err) return reject(new Error(`Odoo connection error: ${err.message}`));
           if (!uid || uid === 0) return reject(new Error("Odoo authentication failed — invalid credentials"));
           this.uid = uid;
@@ -97,7 +97,7 @@ export class OdooService {
       objectClient.methodCall(
         "execute_kw",
         [this.db, uid, this.apiKey, model, "fields_get", [field], { attributes: ["selection", "string", "type"] }],
-        (err: Error | null, result: any) => {
+        (err: any, result: any) => {
           if (err) return reject(new Error(`Odoo fields_get error: ${err.message}`));
           const fieldInfo = result?.[field];
           if (!fieldInfo?.selection) return resolve([]);
@@ -121,7 +121,7 @@ export class OdooService {
       objectClient.methodCall(
         "execute_kw",
         [this.db, uid, this.apiKey, "hr.employee", "read", [[employeeId], ["user_id"]]],
-        (err: Error | null, result: any) => {
+        (err: any, result: any) => {
           if (err) return reject(new Error(`Odoo read employee error: ${err.message}`));
           if (!result || result.length === 0) return resolve(null);
           const user = result[0]?.user_id;
@@ -170,7 +170,7 @@ export class OdooService {
       objectClient.methodCall(
         "execute_kw",
         [this.db, uid, this.apiKey, model, "write", [[id], values]],
-        (err: Error | null, result: boolean) => {
+        (err: any, result: boolean) => {
           if (err) return reject(new Error(`Odoo write error: ${err.message}`));
           resolve(result);
         },
@@ -188,7 +188,7 @@ export class OdooService {
       objectClient.methodCall(
         "execute_kw",
         [this.db, uid, this.apiKey, model, "read", [[id], fields]],
-        (err: Error | null, result: any[]) => {
+        (err: any, result: any[]) => {
           if (err) return reject(new Error(`Odoo read error: ${err.message}`));
           if (!result || result.length === 0) return resolve(null);
           resolve(result[0]);
@@ -208,7 +208,7 @@ export class OdooService {
       objectClient.methodCall(
         "execute_kw",
         [this.db, uid, this.apiKey, model, "create", [values]],
-        (err: Error | null, result: number) => {
+        (err: any, result: number) => {
           if (err) return reject(new Error(`Odoo create error: ${err.message}`));
           resolve(result);
         },
@@ -223,7 +223,7 @@ export class OdooService {
       objectClient.methodCall(
         "execute_kw",
         [this.db, uid, this.apiKey, model, "search_read", [domain], { fields, limit: 500 }],
-        (err: Error | null, result: any[]) => {
+        (err: any, result: any[]) => {
           if (err) return reject(new Error(`Odoo fetch error: ${err.message}`));
           resolve(result || []);
         },

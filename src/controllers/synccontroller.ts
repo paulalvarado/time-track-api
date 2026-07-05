@@ -29,7 +29,7 @@ export class SyncController {
           await prisma.syncState.upsert({
             where: { odooConfigId: config.id },
             update: { odooUid },
-            create: { odooConfigId, odooUid },
+            create: { odooConfigId: config.id, odooUid },
           });
           state = await prisma.syncState.findUnique({ where: { odooConfigId: config.id } });
         }

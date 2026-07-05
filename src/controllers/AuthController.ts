@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { UserModel } from "../models/usermodel.js";
+import { UserModel } from "../models/UserModel.js";
 import { authConfig } from "../config/auth.js";
 import bcrypt from "bcryptjs";
 

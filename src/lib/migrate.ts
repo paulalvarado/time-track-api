@@ -1,7 +1,7 @@
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { pool, db } from "./database.js";
+import { pool, db } from "./Database.js";
 import type { Migration } from "./migration.js";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 

@@ -25,7 +25,7 @@ async function main() {
 
     // Sincronizar todas las cuentas en paralelo
     const results = await Promise.allSettled(
-      configs.map(async (config) => {
+      configs.map(async (config: any) => {
         if (config.syncState?.syncing) {
           console.log(`[SyncWorker] Skipping ${config.username} — already syncing`);
           return;

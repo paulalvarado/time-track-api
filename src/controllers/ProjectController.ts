@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { ProjectModel } from "../models/projectmodel.js";
-import { OdooConfigModel } from "../models/odooconfigmodel.js";
+import { ProjectModel } from "../models/ProjectModel.js";
+import { OdooConfigModel } from "../models/OdooConfigModel.js";
 import { OdooService } from "../services/odoo.js";
 
 export class ProjectController {
@@ -39,8 +39,8 @@ export class ProjectController {
 
       // Add isMine flag and sort: mine first
       const enriched = projects
-        .map((p) => ({ ...p, isMine: p.odooUserId === odooUid }))
-        .sort((a, b) => {
+        .map((p: any) => ({ ...p, isMine: p.odooUserId === odooUid }))
+        .sort((a: any, b: any) => {
           if (a.isMine && !b.isMine) return -1;
           if (!a.isMine && b.isMine) return 1;
           return a.name.localeCompare(b.name);
@@ -50,7 +50,7 @@ export class ProjectController {
     } catch (err: any) {
       // If Odoo connection fails, return local projects if any
       const localProjects = await ProjectModel.findByUserId(sub);
-      const enriched = localProjects.map((p) => ({ ...p, isMine: false }));
+      const enriched = localProjects.map((p: any) => ({ ...p, isMine: false }));
       return reply.status(200).send({
         projects: enriched,
         odooConnected: false,

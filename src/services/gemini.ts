@@ -76,7 +76,7 @@ export async function transcribeTimesheetAudio(
     throw new Error(`Gemini API error (${res.status}): ${errorText}`);
   }
 
-  const data = await res.json();
+  const data: any = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
   // Extraer JSON de la respuesta (por si viene con markdown ```json ... ```)

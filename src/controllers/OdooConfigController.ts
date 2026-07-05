@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { OdooConfigModel } from "../models/odooconfigmodel.js";
+import { OdooConfigModel } from "../models/OdooConfigModel.js";
 import { OdooService } from "../services/odoo.js";
 
 export class OdooConfigController {
