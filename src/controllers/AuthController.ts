@@ -3,11 +3,13 @@ import { UserModel } from "../models/UserModel.js";
 import { authConfig } from "../config/auth.js";
 import bcrypt from "bcryptjs";
 
+const IS_PROD = process.env.NODE_ENV === "production";
+
 const COOKIE_OPTIONS = {
   path: "/",
   httpOnly: true,
-  secure: true,
-  sameSite: "none" as const,
+  secure: IS_PROD,
+  sameSite: (IS_PROD ? "none" : "lax") as "none" | "lax",
   maxAge: 7 * 24 * 60 * 60, // 7 días en segundos
 };
 

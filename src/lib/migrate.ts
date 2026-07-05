@@ -1,12 +1,20 @@
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { pool, db } from "./Database.js";
 import type { Migration } from "./migration.js";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "../../migrations");
+
+/**
+ * Convierte una ruta absoluta a una URL file:// válida para ESM.
+ * Necesario en Windows donde join() devuelve C:\... que ESM no acepta.
+ */
+function toFileURL(filePath: string): string {
+  return pathToFileURL(filePath).href;
+}
 
 interface MigrationRecord {
   id: number;
@@ -90,7 +98,7 @@ export async function migrateUp(): Promise<string[]> {
   for (const file of pending) {
     const start = Date.now();
     try {
-      const module = await import(join(MIGRATIONS_DIR, file));
+      const module = await import(toFileURL(join(MIGRATIONS_DIR, file)));
       const MigClass = module.default as new (db: PgDatabase<any>) => Migration;
       const instance = new MigClass(db);
       await instance.run();
