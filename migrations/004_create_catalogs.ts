@@ -27,7 +27,10 @@ export default class CreateCatalogsTable extends Migration {
       `CREATE UNIQUE INDEX IF NOT EXISTS "CatalogItem_catalogId_key_key" ON "CatalogItem" ("catalogId", "key")`,
     );
     await this.execute(
-      `ALTER TABLE "CatalogItem" ADD CONSTRAINT "CatalogItem_catalogId_fkey" FOREIGN KEY ("catalogId") REFERENCES "Catalog"("id") ON DELETE CASCADE`,
+      `DO $$ BEGIN
+        ALTER TABLE "CatalogItem" ADD CONSTRAINT "CatalogItem_catalogId_fkey" FOREIGN KEY ("catalogId") REFERENCES "Catalog"("id") ON DELETE CASCADE;
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;`,
     );
   }
 
