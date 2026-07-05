@@ -16,6 +16,8 @@ model User {
   updatedAt    DateTime     @updatedAt
   odooConfig   OdooConfig?
   projects     Project[]
+
+  @@map("user")
 }
 
 model OdooConfig {
@@ -34,6 +36,8 @@ model OdooConfig {
   syncTimesheets SyncTimesheet[]
   syncProjectStages SyncProjectStage[]
   catalogs          Catalog[]
+
+  @@map("odooconfig")
 }
 
 model Project {
@@ -47,6 +51,7 @@ model Project {
   user        User     @relation(fields: [userId], references: [id])
 
   @@unique([odooId, userId])
+  @@map("project")
 }
 
 model SyncProject {
@@ -61,6 +66,7 @@ model SyncProject {
   updatedAt    DateTime    @updatedAt
 
   @@unique([odooId, odooConfigId])
+  @@map("syncproject")
 }
 
 model SyncState {
@@ -73,6 +79,8 @@ model SyncState {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   odooConfig   OdooConfig @relation(fields: [odooConfigId], references: [id])
+
+  @@map("syncstate")
 }
 
 model SyncStage {
@@ -88,6 +96,7 @@ model SyncStage {
   stageProjects SyncProjectStage[]
 
   @@unique([odooId, odooConfigId])
+  @@map("syncstage")
 }
 
 model SyncProjectStage {
@@ -101,6 +110,7 @@ model SyncProjectStage {
 
   @@unique([stageOdooId, projectOdooId, odooConfigId])
   @@index([projectOdooId, odooConfigId])
+  @@map("syncprojectstage")
 }
 
 model SyncTask {
@@ -135,6 +145,7 @@ model Catalog {
   createdAt    DateTime      @default(now())
 
   @@unique([name, odooConfigId])
+  @@map("catalog")
 }
 
 model CatalogItem {
@@ -147,6 +158,7 @@ model CatalogItem {
   createdAt DateTime @default(now())
 
   @@unique([catalogId, key])
+  @@map("catalogitem")
 }
 
 model SyncTimesheet {
@@ -158,6 +170,8 @@ model SyncTimesheet {
   userOdooId   Int?
   taskOdooId   Int
   odooConfigId String
+
+  @@map("synctimesheet")
   odooConfig   OdooConfig  @relation(fields: [odooConfigId], references: [id])
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
