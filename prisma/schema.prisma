@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -11,27 +11,132 @@ model User {
   id           String       @id @default(cuid())
   email        String       @unique
   name         String
+  password     String
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
-  odooConfig  OdooConfig?
-  projects    Project[]
+  odooConfig   OdooConfig?
+  projects     Project[]
 }
 
 model OdooConfig {
-  id       String @id @default(cuid())
-  userId   String @unique
-  url      String
-  dbName   String
-  username String
-  apiKey   String
-  user     User   @relation(fields: [userId], references: [id])
+  id          String        @id @default(cuid())
+  userId      String        @unique
+  url         String
+  dbName      String
+  username    String
+  apiKey      String
+  user        User          @relation(fields: [userId], references: [id])
+  syncState   SyncState?
+  syncProjects SyncProject[]
+  syncStages  SyncStage[]
+  syncTasks   SyncTask[]
+  syncTimesheets SyncTimesheet[]
+  syncProjectStages SyncProjectStage[]
 }
 
 model Project {
-  id        String   @id @default(cuid())
-  odooId    Int
-  name      String
-  userId    String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+  id          String   @id @default(cuid())
+  odooId      Int
+  name        String
+  userId      String
+  odooUserId  Int?
+  color       Int?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@unique([odooId, userId])
+}
+
+model SyncProject {
+  id           String      @id @default(cuid())
+  odooId       Int
+  name         String
+  color        Int?
+  odooUserId   Int?
+  odooConfigId String
+  odooConfig   OdooConfig  @relation(fields: [odooConfigId], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([odooId, odooConfigId])
+}
+
+model SyncState {
+  id           String    @id @default(cuid())
+  odooConfigId String    @unique
+  lastSyncAt   DateTime?
+  syncing      Boolean   @default(false)
+  error        String?
+  odooUid      Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  odooConfig   OdooConfig @relation(fields: [odooConfigId], references: [id])
+}
+
+model SyncStage {
+  id           String      @id @default(cuid())
+  odooId       Int
+  name         String
+  sequence     Int
+  odooConfigId String
+  odooConfig   OdooConfig  @relation(fields: [odooConfigId], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  tasks        SyncTask[]
+  stageProjects SyncProjectStage[]
+
+  @@unique([odooId, odooConfigId])
+}
+
+model SyncProjectStage {
+  id           String      @id @default(cuid())
+  stageOdooId  Int
+  projectOdooId Int
+  odooConfigId String
+  odooConfig   OdooConfig  @relation(fields: [odooConfigId], references: [id])
+  stage        SyncStage   @relation(fields: [stageOdooId, odooConfigId], references: [odooId, odooConfigId])
+  createdAt    DateTime    @default(now())
+
+  @@unique([stageOdooId, projectOdooId, odooConfigId])
+  @@index([projectOdooId, odooConfigId])
+}
+
+model SyncTask {
+  id            String      @id @default(cuid())
+  odooId        Int
+  name          String
+  description   String?
+  stageOdooId   Int?
+  assigneeIds   Json?
+  priority      String?
+  deadline      String?
+  color         Int?
+  projectOdooId Int
+  odooConfigId  String
+  odooConfig    OdooConfig  @relation(fields: [odooConfigId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  stage         SyncStage?  @relation(fields: [stageOdooId, odooConfigId], references: [odooId, odooConfigId])
+  timesheets    SyncTimesheet[]
+
+  @@unique([odooId, odooConfigId])
+  @@index([projectOdooId, odooConfigId])
+}
+
+model SyncTimesheet {
+  id           String      @id @default(cuid())
+  odooId       Int
+  name         String?
+  unitAmount   Float
+  date         String?
+  userOdooId   Int?
+  taskOdooId   Int
+  odooConfigId String
+  odooConfig   OdooConfig  @relation(fields: [odooConfigId], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  task         SyncTask    @relation(fields: [taskOdooId, odooConfigId], references: [odooId, odooConfigId])
+
+  @@unique([odooId, odooConfigId])
+  @@index([taskOdooId, odooConfigId])
 }

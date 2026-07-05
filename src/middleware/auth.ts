@@ -1,4 +1,5 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
+import "@fastify/jwt";
 
 export async function authMiddleware(req: FastifyRequest, reply: FastifyReply) {
   try {
