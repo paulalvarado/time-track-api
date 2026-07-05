@@ -7,6 +7,8 @@ export const projects = pgTable("Project", {
   odooId: integer("odooId").notNull(),
   name: text("name").notNull(),
   userId: text("userId").notNull().references(() => users.id),
+  odooUserId: integer("odooUserId"),
+  color: integer("color"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
 
