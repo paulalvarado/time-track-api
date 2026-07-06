@@ -23,51 +23,27 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: deps
-    image: time-track-api:dev
+      target: runner
+    image: time-track-api:php
     container_name: time-track-api
     restart: unless-stopped
     ports:
-      - "${API_PORT:-3000}:3000"
+      - "${API_PORT:-3000}:80"
     env_file:
       - .env
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-timetrack}:${POSTGRES_PASSWORD:-timetrack_secret}@db:5432/${POSTGRES_DB:-timetrack}
-      - NODE_ENV=development
-    command: ["sh", "-c", "npm run migrate:up && npm run dev"]
+      - CI_ENVIRONMENT=development
     volumes:
-      # Hot-reload: monta el código fuente local sin necesidad de rebuild
-      - ./src:/app/src
-      - ./migrations:/app/migrations
-      - ./prisma:/app/prisma
-      - ./tsconfig.json:/app/tsconfig.json
-      - ./package.json:/app/package.json
-    depends_on:
-      db:
-        condition: service_healthy
-
-  sync-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: deps
-    image: time-track-api:dev
-    container_name: time-track-sync
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-timetrack}:${POSTGRES_PASSWORD:-timetrack_secret}@db:5432/${POSTGRES_DB:-timetrack}
-      - NODE_ENV=development
-    command: ["sh", "-c", "while true; do npx tsx src/commands/syncworker.ts; echo '[SyncWorker] Waiting 5 min until next run...'; sleep 300; done"]
-    volumes:
-      - ./src:/app/src
-      - ./prisma:/app/prisma
-      - ./tsconfig.json:/app/tsconfig.json
-      - ./package.json:/app/package.json
+      - ./app:/app/app
+      - ./public:/app/public
+      - ./writable:/app/writable
+      - .env:/app/.env
+      - vendor_data:/app/vendor
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  vendor_data:

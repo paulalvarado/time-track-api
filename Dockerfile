@@ -1,70 +1,65 @@
 ﻿# ============================================================
-# STAGE 1: Install ALL dependencies (ignorando scripts no seguros)
+# Time Track API - CodeIgniter 4 (PHP 8.2)
 # ============================================================
-FROM node:22-alpine AS deps
+
+FROM php:8.2-apache AS base
+
+# Instalar extensiones requeridas
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    libicu-dev \
+    libzip-dev \
+    unzip \
+    git \
+    curl \
+    && docker-php-ext-install \
+    pgsql \
+    pdo_pgsql \
+    intl \
+    zip \
+    opcache \
+    && a2enmod rewrite headers
+
+# Configurar Apache para usar public/ como DocumentRoot
+ENV APACHE_DOCUMENT_ROOT=/app/public
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
+RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+
+# Permitir .htaccess (AllowOverride All)
+RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+
+# PHP config
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+RUN echo "memory_limit = 256M" >> "$PHP_INI_DIR/conf.d/overrides.ini"
+RUN echo "upload_max_filesize = 20M" >> "$PHP_INI_DIR/conf.d/overrides.ini"
+RUN echo "post_max_size = 20M" >> "$PHP_INI_DIR/conf.d/overrides.ini"
+
+# ============================================================
+# STAGE: Composer install
+# ============================================================
+FROM composer:latest AS composer-stage
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
+
+# ============================================================
+# STAGE: Final
+# ============================================================
+FROM base AS runner
 WORKDIR /app
 
-# Copiar solo archivos de dependencias — maximiza cache de capas
-COPY package.json ./
-COPY prisma/schema.prisma ./prisma/schema.prisma
-COPY prisma.config.ts ./
-
-# --ignore-scripts evita ejecutar pre/postinstall automáticamente
-RUN npm install --ignore-scripts --legacy-peer-deps
-
-# Solo ejecutamos scripts que conocemos y son seguros
-RUN npx prisma generate
-
-# ============================================================
-# STAGE 2: Build (TypeScript → JavaScript)
-# ============================================================
-FROM node:22-alpine AS builder
-WORKDIR /app
-
-# Reusar node_modules del stage deps (ya incluye devDeps)
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/prisma ./prisma
+# Copiar vendor de Composer
+COPY --from=composer-stage /app/vendor ./vendor
 
 # Copiar código fuente
-COPY tsconfig.json ./
-COPY src/ ./src/
+COPY . .
 
-# Build
-RUN npx tsc
+# Enlazar spark CLI
+RUN ln -s /app/vendor/codeigniter4/framework/spark /usr/local/bin/spark 2>/dev/null || true
 
-# ============================================================
-# STAGE 3: Producción — solo runtime
-# ============================================================
-FROM node:22-alpine AS runner
-WORKDIR /app
+# Permisos para writable
+RUN chown -R www-data:www-data /app/writable
 
-RUN apk add --no-cache bash
-
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 appuser
-
-# Instalar solo producción (más liviano)
-COPY package.json ./
-COPY prisma/schema.prisma ./prisma/schema.prisma
-COPY prisma.config.ts ./
-RUN npm install --ignore-scripts --legacy-peer-deps --omit=dev
-
-# Copiar el cliente de Prisma ya generado desde el stage deps
-COPY --from=deps /app/node_modules/@prisma/client ./node_modules/@prisma/client
-COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
-
-# Copiar archivos necesarios para migraciones en producción (tsx corre .ts directo)
-COPY --from=builder /app/src ./src
-COPY migrations/ ./migrations/
-
-# Copiar el build compilado
-COPY --from=builder /app/dist ./dist
-
-USER appuser
-
-ENV NODE_ENV=production
-ENV PORT=80
 EXPOSE 80
 
-# Ejecuta migraciones y luego arranca la API
-CMD ["npm", "run", "start:migrate"]
+CMD ["apache2-foreground"]
