@@ -55,44 +55,73 @@ class SyncService
 
             $projectIds = array_column($odooProjects, 'id');
 
+            // Identify "my" projects (assigned to the authenticated Odoo user)
+            $myProjectIds = [];
+            foreach ($odooProjects as $project) {
+                $projectUserId = (!empty($project['user_id']) && is_array($project['user_id'])) ? (int) $project['user_id'][0] : null;
+                if ($odooUid !== null && $projectUserId === $odooUid) {
+                    $myProjectIds[] = (int) $project['id'];
+                }
+            }
+
+            if (empty($myProjectIds)) {
+                echo "  ⚠️ No projects assigned to you. Sync complete (only projects saved).\n";
+                $syncStateModel->upsert($odooConfigId, [
+                    'syncing' => false,
+                    'lastSyncAt' => date('Y-m-d H:i:s'),
+                    'error' => null,
+                    'odooUid' => $odooUid,
+                ]);
+                return;
+            }
+
+            echo "  [1/5] " . count($myProjectIds) . " projects assigned to you\n";
+
             // ========================================================================
             // FASE 2: Stages + relaciones proyecto-etapa (1 llamada)
+            // Solo para los proyectos del usuario autenticado
             // ========================================================================
-            echo "  [2/5] Fetching all stages...\n";
+            echo "  [2/5] Fetching stages for your projects...\n";
             $allStages = [];
             $projectStagePairs = [];
 
             $odooStages = $odoo->fetchAllStages();
             foreach ($odooStages as $s) {
                 $allStages[$s['id']] = $s;
-                // Build project-stage pairs from the project_ids m2m field
+                // Build project-stage pairs: only link stages to my projects
                 if (!empty($s['project_ids']) && is_array($s['project_ids'])) {
                     foreach ($s['project_ids'] as $pid) {
-                        $projectStagePairs[] = (int) $s['id'] . ':' . (int) $pid;
+                        if (in_array((int) $pid, $myProjectIds, true)) {
+                            $projectStagePairs[] = (int) $s['id'] . ':' . (int) $pid;
+                        }
                     }
                 }
             }
             echo "  [2/5] " . count($allStages) . " stages fetched\n";
 
             // ========================================================================
-            // FASE 3: Tareas (1 llamada masiva)
+            // FASE 3: Tareas (1 llamada masiva, filtrar solo mis proyectos)
             // ========================================================================
             echo "  [3/5] Fetching all tasks...\n";
             $odooTasks = $odoo->fetchAllTasks($projectIds);
             echo "  [3/5] " . count($odooTasks) . " tasks fetched\n";
 
-            // Attach projectOdooId to each task
+            // Attach projectOdooId and filter only tasks from my projects
             $allTasks = [];
             foreach ($odooTasks as $t) {
                 $t['projectOdooId'] = is_array($t['project_id'] ?? null) ? (int) $t['project_id'][0] : (int) ($t['project_id'] ?? 0);
-                $allTasks[] = $t;
+                // Only keep tasks from projects assigned to this user
+                if (in_array($t['projectOdooId'], $myProjectIds, true)) {
+                    $allTasks[] = $t;
+                }
             }
+            echo "  [3/5] " . count($allTasks) . " tasks are in your projects\n";
 
             // ========================================================================
             // FASE 4: Timesheets (1 llamada masiva en batches de 100)
             // ========================================================================
             $taskIds = array_column($allTasks, 'id');
-            echo "  [4/5] Fetching all timesheets (" . count($taskIds) . " tasks)...\n";
+            echo "  [4/5] Fetching all timesheets (" . count($taskIds) . " tasks in your projects)...\n";
             $allTimesheets = $odoo->fetchAllTimesheets($taskIds);
             echo "  [4/5] " . count($allTimesheets) . " timesheet entries fetched\n";
 

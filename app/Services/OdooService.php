@@ -116,7 +116,7 @@ class OdooService
         foreach (array_chunk($taskIds, $chunkSize) as $chunk) {
             $batch = $this->searchReadAll(
                 'account.analytic.line',
-                ['id', 'name', 'unit_amount', 'date', 'employee_id', 'user_id'],
+                ['id', 'name', 'unit_amount', 'date', 'employee_id', 'user_id', 'task_id'],
                 [['task_id', 'in', $chunk]]
             );
             foreach ($batch as $ts) {

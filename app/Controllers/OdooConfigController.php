@@ -4,8 +4,6 @@ namespace App\Controllers;
 
 use App\Models\OdooConfigModel;
 use App\Services\OdooService;
-use App\Services\CatalogSyncService;
-use App\Services\SyncService;
 
 class OdooConfigController extends BaseController
 {
@@ -42,20 +40,6 @@ class OdooConfigController extends BaseController
             'username' => $username,
             'apiKey' => $apiKey,
         ]);
-
-        // Sync catalogs (fire and forget)
-        try {
-            CatalogSyncService::syncCatalogs($config->id);
-        } catch (\Exception $e) {
-            log_message('error', "[OdooConfig] Catalog sync error: {$e->getMessage()}");
-        }
-
-        // Full sync (fire and forget)
-        try {
-            SyncService::syncAll($config->id);
-        } catch (\Exception $e) {
-            log_message('error', "[OdooConfig] Full sync error: {$e->getMessage()}");
-        }
 
         return $this->respondSuccess([
             'config' => [

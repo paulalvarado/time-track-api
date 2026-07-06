@@ -78,6 +78,7 @@ class AuthController extends BaseController
 
     public function logout()
     {
+        $this->response->deleteCookie('token');
         return $this->respondSuccess(['ok' => true]);
     }
 

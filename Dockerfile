@@ -57,8 +57,8 @@ COPY . .
 # Enlazar spark CLI
 RUN ln -s /app/vendor/codeigniter4/framework/spark /usr/local/bin/spark 2>/dev/null || true
 
-# Permisos para writable
-RUN chown -R www-data:www-data /app/writable
+# Crear writable y dar permisos (no existe en git por .gitignore)
+RUN mkdir -p /app/writable/cache /app/writable/logs && chown -R www-data:www-data /app/writable
 
 EXPOSE 80
 
