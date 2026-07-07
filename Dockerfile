@@ -1,5 +1,6 @@
 ﻿# ============================================================
 # Time Track API - CodeIgniter 4 (PHP 8.2)
+# Forzar rebuild: fix cors preflight 204
 # ============================================================
 
 FROM php:8.2-apache AS base
