@@ -33,12 +33,14 @@ class CorsFilter implements FilterInterface
         }
 
         if ($request->getMethod() === 'options') {
-            header('Access-Control-Allow-Origin: ' . ($origin ?: '*'));
-            header('Access-Control-Allow-Credentials: true');
-            header('Access-Control-Allow-Headers: ' . implode(', ', ['Content-Type', 'Authorization', 'X-Requested-With']));
-            header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
-            header('Access-Control-Max-Age: 86400');
-            exit(0);
+            $response = service('response');
+            $response->setStatusCode(204);
+            $response->setHeader('Access-Control-Allow-Origin', $origin ?: '*');
+            $response->setHeader('Access-Control-Allow-Credentials', 'true');
+            $response->setHeader('Access-Control-Allow-Headers', implode(', ', $config->allowedHeaders));
+            $response->setHeader('Access-Control-Allow-Methods', implode(', ', $config->allowedMethods));
+            $response->setHeader('Access-Control-Max-Age', (string) $config->maxAge);
+            return $response;
         }
     }
 
