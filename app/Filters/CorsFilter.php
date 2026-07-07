@@ -32,17 +32,8 @@ class CorsFilter implements FilterInterface
             }
         }
 
-        if ($request->getMethod() === 'options') {
-            $response = service('response');
-            $response->setStatusCode(204);
-            $response->setHeader('Access-Control-Allow-Origin', $origin ?: '*');
-            $response->setHeader('Access-Control-Allow-Credentials', 'true');
-            $response->setHeader('Access-Control-Allow-Headers', implode(', ', $config->allowedHeaders));
-            $response->setHeader('Access-Control-Allow-Methods', implode(', ', $config->allowedMethods));
-            $response->setHeader('Access-Control-Max-Age', (string) $config->maxAge);
-            $response->send();
-            exit(EXIT_SUCCESS);
-        }
+        // Las solicitudes OPTIONS no necesitan más procesamiento aquí;
+        // la ruta dedicada en Routes.php maneja la respuesta preflight.
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)
