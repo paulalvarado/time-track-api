@@ -40,7 +40,8 @@ class CorsFilter implements FilterInterface
             $response->setHeader('Access-Control-Allow-Headers', implode(', ', $config->allowedHeaders));
             $response->setHeader('Access-Control-Allow-Methods', implode(', ', $config->allowedMethods));
             $response->setHeader('Access-Control-Max-Age', (string) $config->maxAge);
-            return $response;
+            $response->send();
+            exit(EXIT_SUCCESS);
         }
     }
 
