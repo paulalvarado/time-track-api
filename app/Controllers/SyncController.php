@@ -300,6 +300,7 @@ class SyncController extends BaseController
 
         // Get employee catalog
         $employeeById = [];
+        $userToEmployeeId = [];
         $catalogModel = new CatalogModel();
         $empCatalog = $catalogModel->findByName('employees', $config->id);
         if ($empCatalog) {
@@ -307,13 +308,24 @@ class SyncController extends BaseController
             $items = $itemModel->findByCatalogId($empCatalog->id);
             foreach ($items as $item) {
                 $employeeById[(int) $item->key] = $item->value;
+                if ($item->extra) {
+                    $extra = json_decode($item->extra, true);
+                    if (!empty($extra['userId'])) {
+                        $userToEmployeeId[(int) $extra['userId']] = (int) $item->key;
+                    }
+                }
             }
         }
 
-        $timesheets = array_map(function ($t) use ($employeeById, $userCache) {
+        $timesheets = array_map(function ($t) use ($employeeById, $userToEmployeeId, $userCache) {
             $userName = '';
             if ($t->userOdooId) {
                 $userName = $employeeById[$t->userOdooId] ?? $userCache[$t->userOdooId] ?? ('User #' . $t->userOdooId);
+            }
+            // Prefer employeeOdooId if available, otherwise map via userToEmployeeId
+            $employeeId = $t->employeeOdooId ?? null;
+            if (!$employeeId && $t->userOdooId) {
+                $employeeId = $userToEmployeeId[$t->userOdooId] ?? null;
             }
             return [
                 'id' => $t->odooId,
@@ -321,7 +333,7 @@ class SyncController extends BaseController
                 'hours' => (float) $t->unitAmount,
                 'date' => $t->date ?? null,
                 'userName' => $userName,
-                'userId' => $t->userOdooId ?? null,
+                'userId' => $employeeId ?? $t->userOdooId ?? null,
             ];
         }, $raw);
 
@@ -379,6 +391,204 @@ class SyncController extends BaseController
         $totalHours = $tsModel->sumByUser($odooUid, $config->id);
 
         return $this->respondSuccess(['totalHours' => $totalHours]);
+    }
+
+    public function createTask($projectId)
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $data = $this->getJsonInput();
+        $name = $data['name'] ?? '';
+        $stageId = $data['stageId'] ?? null;
+        $ownerId = $data['ownerId'] ?? null;
+        $color = $data['color'] ?? null;
+        $description = $data['description'] ?? '';
+
+        if (empty($name)) {
+            return $this->respondError('Task name is required');
+        }
+
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+        if (!$config) {
+            return $this->respondNotFound('Odoo not configured');
+        }
+
+        $odoo = new OdooService([
+            'url' => $config->url,
+            'dbName' => $config->dbName,
+            'username' => $config->username,
+            'apiKey' => $config->apiKey,
+        ]);
+
+        $odoo->authenticate();
+
+        $values = [
+            'name' => $name,
+            'project_id' => (int) $projectId,
+        ];
+        if ($stageId !== null) $values['stage_id'] = (int) $stageId;
+        if ($ownerId !== null) $values['user_ids'] = [(int) $ownerId];
+        if ($color !== null) $values['color'] = (int) $color;
+        if (!empty($description)) $values['description'] = $description;
+
+        try {
+            $newOdooId = $odoo->createRecord('project.task', $values);
+        } catch (\Exception $e) {
+            return $this->respondError("Odoo create error: {$e->getMessage()}", 502);
+        }
+
+        // Save to local DB
+        try {
+            $taskModel = new SyncTaskModel();
+            $taskModel->upsert($newOdooId, $config->id, [
+                'name' => $name,
+                'description' => $description,
+                'stageOdooId' => $stageId ? (int) $stageId : null,
+                'assigneeIds' => $ownerId ? json_encode([[$ownerId, '']]) : '[]',
+                'priority' => '0',
+                'color' => $color !== null ? (int) $color : null,
+                'projectOdooId' => (int) $projectId,
+            ]);
+        } catch (\Exception $e) {
+            log_message('error', "[Task] Local save failed for {$newOdooId}: {$e->getMessage()}");
+        }
+
+        return $this->respondSuccess([
+            'ok' => true,
+            'task' => [
+                'id' => $newOdooId,
+                'name' => $name,
+                'stageId' => $stageId,
+                'ownerId' => $ownerId,
+                'color' => $color,
+            ],
+        ]);
+    }
+
+    public function updateTask($projectId, $taskId)
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $data = $this->getJsonInput();
+        $name = $data['name'] ?? null;
+        $stageId = $data['stageId'] ?? null;
+        $ownerId = $data['ownerId'] ?? null;
+        $color = $data['color'] ?? null;
+        $description = $data['description'] ?? null;
+
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+        if (!$config) {
+            return $this->respondNotFound('Odoo not configured');
+        }
+
+        $odoo = new OdooService([
+            'url' => $config->url,
+            'dbName' => $config->dbName,
+            'username' => $config->username,
+            'apiKey' => $config->apiKey,
+        ]);
+
+        $odoo->authenticate();
+
+        $values = [];
+        if ($name !== null) $values['name'] = $name;
+        if ($stageId !== null) $values['stage_id'] = (int) $stageId;
+        if ($ownerId !== null) $values['user_ids'] = [(int) $ownerId];
+        if ($color !== null) $values['color'] = (int) $color;
+        if ($description !== null) $values['description'] = $description;
+
+        if (empty($values)) {
+            return $this->respondError('No fields to update');
+        }
+
+        try {
+            $updated = $odoo->updateRecord('project.task', (int) $taskId, $values);
+        } catch (\Exception $e) {
+            return $this->respondError("Odoo update error: {$e->getMessage()}", 502);
+        }
+
+        if (!$updated) {
+            return $this->respondError('Odoo returned false on update', 502);
+        }
+
+        // Update local DB
+        try {
+            $taskModel = new SyncTaskModel();
+            $updateData = [];
+            if ($name !== null) $updateData['name'] = $name;
+            if ($description !== null) $updateData['description'] = $description;
+            if ($stageId !== null) $updateData['stageOdooId'] = (int) $stageId;
+            if ($ownerId !== null) $updateData['assigneeIds'] = json_encode([[(int) $ownerId, '']]);
+            if ($color !== null) $updateData['color'] = (int) $color;
+            $taskModel->upsert((int) $taskId, $config->id, $updateData);
+        } catch (\Exception $e) {
+            log_message('error', "[Task] Local update failed for {$taskId}: {$e->getMessage()}");
+        }
+
+        return $this->respondSuccess([
+            'ok' => true,
+            'task' => [
+                'id' => (int) $taskId,
+                'name' => $name,
+                'stageId' => $stageId,
+                'ownerId' => $ownerId,
+                'color' => $color,
+            ],
+        ]);
+    }
+
+    public function deleteTask($projectId, $taskId)
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+        if (!$config) {
+            return $this->respondNotFound('Odoo not configured');
+        }
+
+        $odoo = new OdooService([
+            'url' => $config->url,
+            'dbName' => $config->dbName,
+            'username' => $config->username,
+            'apiKey' => $config->apiKey,
+        ]);
+
+        $odoo->authenticate();
+
+        try {
+            $deleted = $odoo->deleteRecord('project.task', (int) $taskId);
+        } catch (\Exception $e) {
+            return $this->respondError("Odoo delete error: {$e->getMessage()}", 502);
+        }
+
+        if (!$deleted) {
+            return $this->respondError('Odoo returned false on delete', 502);
+        }
+
+        // Delete from local DB
+        try {
+            $taskModel = new SyncTaskModel();
+            $existing = $taskModel->findByOdooId((int) $taskId, $config->id);
+            if ($existing) {
+                $taskModel->delete($existing->id);
+            }
+        } catch (\Exception $e) {
+            log_message('error', "[Task] Local delete failed for {$taskId}: {$e->getMessage()}");
+        }
+
+        return $this->respondSuccess(['ok' => true, 'message' => 'Task deleted']);
     }
 
     private static function castBool($value): bool

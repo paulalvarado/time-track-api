@@ -241,13 +241,18 @@ class SyncService
                 if ($tsName === false) $tsName = '';
                 if (mb_strlen($tsName) > 255) $tsName = mb_substr($tsName, 0, 255);
 
-                $syncTimesheetModel->upsert((int) $ts['id'], $odooConfigId, [
+                $tsUpsertData = [
                     'name' => $tsName,
                     'unitAmount' => (float) ($ts['unit_amount'] ?? 0),
                     'date' => $tsDate,
                     'userOdooId' => $userId,
                     'taskOdooId' => (int) ($ts['taskOdooId'] ?? 0),
-                ]);
+                ];
+                if (!empty($ts['employee_id']) && $ts['employee_id'] !== false) {
+                    $empId = is_array($ts['employee_id']) ? (int) $ts['employee_id'][0] : (int) $ts['employee_id'];
+                    $tsUpsertData['employeeOdooId'] = $empId;
+                }
+                $syncTimesheetModel->upsert((int) $ts['id'], $odooConfigId, $tsUpsertData);
                 $tsSaved++;
             }
             echo "  [5/5] {$tsSaved} timesheet entries saved\n";

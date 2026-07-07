@@ -177,19 +177,24 @@ class TimesheetController extends BaseController
                 'unit_amount' => (float) ($entry['hours'] ?? 0),
                 'date' => $entry['date'] ?? date('Y-m-d'),
                 'user_id' => $entry['userId'] ?? $odooUid,
+                'employee_id' => isset($entry['employeeId']) ? (int) $entry['employeeId'] : null,
             ];
 
             try {
                 $newOdooId = $odoo->createRecord('account.analytic.line', $values);
 
                 $tsModel = new SyncTimesheetModel();
-                $tsModel->upsert($newOdooId, $config->id, [
+                $upsertData = [
                     'name' => $entry['concept'] ?? '',
                     'unitAmount' => (float) ($entry['hours'] ?? 0),
                     'date' => $entry['date'] ?? date('Y-m-d'),
                     'userOdooId' => $entry['userId'] ?? $odooUid,
                     'taskOdooId' => (int) $taskId,
-                ]);
+                ];
+                if (isset($entry['employeeId'])) {
+                    $upsertData['employeeOdooId'] = (int) $entry['employeeId'];
+                }
+                $tsModel->upsert($newOdooId, $config->id, $upsertData);
 
                 $results[] = [
                     'index' => $i,

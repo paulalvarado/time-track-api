@@ -26,6 +26,30 @@ Reglas:
 - Responde SOLO con el JSON, sin texto adicional ni markdown.
 EOT;
 
+    const TASK_SYSTEM_PROMPT = <<<'EOT'
+Eres un asistente experto en crear tareas de proyecto en Odoo.
+El usuario te dictará una nota de audio describiendo la tarea que quiere crear.
+Debes extraer la información y responder ÚNICAMENTE con un JSON válido con este esquema:
+
+{
+  "tasks": [
+    {
+      "name": "Nombre claro de la tarea",
+      "description": "Descripción detallada del trabajo a realizar (opcional)",
+      "stageId": null
+    }
+  ]
+}
+
+Reglas:
+- Extrae el nombre de la tarea de forma clara y concisa.
+- Si el usuario da detalles adicionales, ponlos en "description".
+- Si el usuario menciona una etapa específica, intenta mapearla a las opciones disponibles.
+- El campo stageId debe ser null si no hay coincidencia clara.
+- Si menciona varias tareas, crea una entrada por cada una.
+- Responde SOLO con el JSON, sin texto adicional ni markdown.
+EOT;
+
     public static function transcribeTimesheetAudio(
         string $audioBase64,
         string $mimeType,
@@ -105,6 +129,95 @@ EOT;
                     'hours' => (float) ($e['hours'] ?? 1),
                 ];
             }
+        }
+
+        return $result;
+    }
+
+    public static function transcribeTaskAudio(
+        string $audioBase64,
+        string $mimeType,
+        string $apiKey,
+        array $stageOptions = []
+    ): array {
+        if (empty($apiKey)) {
+            throw new \RuntimeException('GEMINI_API_KEY not configured');
+        }
+
+        $model = env('GEMINI_MODEL', 'gemini-2.5-flash');
+        $today = date('Y-m-d');
+
+        $stagesHint = '';
+        if (!empty($stageOptions)) {
+            $stagesText = implode(', ', array_map(function ($s) {
+                return "{$s['id']}: {$s['name']}";
+            }, $stageOptions));
+            $stagesHint = "Etapas disponibles: {$stagesText}. Usa el stageId correspondiente si el usuario menciona una etapa.";
+        }
+
+        $body = [
+            'contents' => [
+                [
+                    'role' => 'user',
+                    'parts' => [
+                        ['text' => "Hoy es {$today}. {$stagesHint} " . self::TASK_SYSTEM_PROMPT],
+                        [
+                            'inlineData' => [
+                                'mimeType' => $mimeType,
+                                'data' => $audioBase64,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'generationConfig' => [
+                'temperature' => 0.1,
+                'maxOutputTokens' => 1024,
+            ],
+        ];
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS => json_encode($body),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30,
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode !== 200) {
+            throw new \RuntimeException("Gemini API error ({$httpCode}): {$response}");
+        }
+
+        $data = json_decode($response, true);
+        $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+        // Extract JSON from response
+        preg_match('/```(?:json)?\s*([\s\S]*?)```/', $text, $jsonMatch);
+        if (!$jsonMatch) {
+            preg_match('/{[\s\S]*}/', $text, $jsonMatch);
+        }
+        $jsonStr = $jsonMatch ? trim($jsonMatch[1] ?? $jsonMatch[0]) : $text;
+
+        $parsed = json_decode($jsonStr, true);
+        if (!$parsed) {
+            throw new \RuntimeException('Failed to parse Gemini response as JSON');
+        }
+
+        $tasks = $parsed['tasks'] ?? [$parsed];
+        $result = [];
+        foreach ($tasks as $t) {
+            $result[] = [
+                'name' => $t['name'] ?? '',
+                'description' => $t['description'] ?? '',
+                'stageId' => $t['stageId'] ?? null,
+            ];
         }
 
         return $result;

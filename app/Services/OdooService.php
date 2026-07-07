@@ -267,7 +267,7 @@ class OdooService
             new Value($this->apiKey, 'string'),
             new Value($model, 'string'),
             new Value('write', 'string'),
-            new Value([[$id], self::php2XmlRpc($values)], 'array'),
+            new Value([self::php2XmlRpc([$id]), self::php2XmlRpc($values)], 'array'),
         ]);
 
         $response = $client->send($request);
@@ -295,6 +295,26 @@ class OdooService
             throw new \RuntimeException('Odoo create error: ' . $response->faultString());
         }
         return (int) $response->value()->scalarval();
+    }
+
+    public function deleteRecord(string $model, int $id): bool
+    {
+        $uid = $this->authenticate();
+        $client = new Client($this->url . '/xmlrpc/2/object');
+        $request = new Request('execute_kw', [
+            new Value($this->db, 'string'),
+            new Value($uid, 'int'),
+            new Value($this->apiKey, 'string'),
+            new Value($model, 'string'),
+            new Value('unlink', 'string'),
+            new Value([self::php2XmlRpc([$id])], 'array'),
+        ]);
+
+        $response = $client->send($request);
+        if ($response->faultCode()) {
+            throw new \RuntimeException('Odoo delete error: ' . $response->faultString());
+        }
+        return (bool) $response->value()->scalarval();
     }
 
     /**

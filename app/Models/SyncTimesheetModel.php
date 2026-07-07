@@ -13,7 +13,7 @@ class SyncTimesheetModel extends Model
     protected $useSoftDeletes = false;
     protected $allowedFields = [
         'id', 'odooId', 'name', 'unitAmount', 'date',
-        'userOdooId', 'taskOdooId', 'odooConfigId', 'createdAt', 'updatedAt',
+        'userOdooId', 'employeeOdooId', 'taskOdooId', 'odooConfigId', 'createdAt', 'updatedAt',
     ];
     protected $useTimestamps = true;
     protected $dateFormat = 'datetime';
