@@ -8,8 +8,7 @@ $routes->setAutoRoute(false);
 // Catch-all para solicitudes de preflight de CORS
 $routes->options('(:any)', static function () {
     $config = config(\Config\Cors::class);
-    $request = service('request');
-    $origin = $request->getHeaderLine('Origin');
+    $origin = service('request')->getHeaderLine('Origin');
 
     $response = service('response');
     $response->setStatusCode(204);
@@ -18,6 +17,7 @@ $routes->options('(:any)', static function () {
     $response->setHeader('Access-Control-Allow-Headers', implode(', ', $config->allowedHeaders));
     $response->setHeader('Access-Control-Allow-Methods', implode(', ', $config->allowedMethods));
     $response->setHeader('Access-Control-Max-Age', (string) $config->maxAge);
+    $response->setBody('');
 
     return $response;
 });
