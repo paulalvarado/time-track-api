@@ -5,6 +5,32 @@ use CodeIgniter\Router\RouteCollection;
 /** @var RouteCollection $routes */
 $routes->setAutoRoute(false);
 
+// Catch-all para solicitudes de preflight de CORS
+$routes->options('(:any)', static function () {
+    $config = config(\Config\Cors::class);
+    $origin = service('request')->getHeaderLine('Origin');
+
+    if ($origin) {
+        $allowed = false;
+        foreach ($config->allowedOrigins as $allowedOrigin) {
+            if ($origin === $allowedOrigin) {
+                $allowed = true;
+                break;
+            }
+        }
+
+        if ($allowed) {
+            header('Access-Control-Allow-Origin: ' . $origin);
+            header('Access-Control-Allow-Credentials: ' . ($config->allowCredentials ? 'true' : 'false'));
+            header('Access-Control-Allow-Headers: ' . implode(', ', $config->allowedHeaders));
+            header('Access-Control-Allow-Methods: ' . implode(', ', $config->allowedMethods));
+            header('Access-Control-Max-Age: ' . $config->maxAge);
+        }
+    }
+
+    return '';
+});
+
 // Auth
 $routes->post('/api/auth/register', 'AuthController::register');
 $routes->post('/api/auth/login', 'AuthController::login');
