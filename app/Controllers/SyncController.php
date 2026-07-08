@@ -340,6 +340,189 @@ class SyncController extends BaseController
         return $this->respondSuccess(['timesheets' => $timesheets]);
     }
 
+    /**
+     * Marcar un proyecto como "trackeado" (visitado) y, si es la primera vez,
+     * obtener sus datos desde Odoo directamente (tareas, etapas, partes de hora).
+     *
+     * POST /api/sync/projects/{projectId}/track
+     */
+    public function trackProject($projectId)
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+        if (!$config) {
+            return $this->respondNotFound('Odoo not configured');
+        }
+
+        $projectModel = new SyncProjectModel();
+        $syncProject = $projectModel->findByOdooId((int) $projectId, $config->id);
+
+        if (!$syncProject) {
+            return $this->respondNotFound('Project not found in local DB');
+        }
+
+        // Si el proyecto ya es del usuario, no necesita trackeo
+        $stateModel = new SyncStateModel();
+        $state = $stateModel->findByConfigId($config->id);
+        $u = $state->odooUid ?? null;
+        $odooUid = ($u !== null) ? (int) $u : null;
+
+        $projectUserId = $syncProject->odooUserId !== null ? (int) $syncProject->odooUserId : null;
+        if ($odooUid !== null && $projectUserId === $odooUid) {
+            return $this->respondSuccess(['tracked' => true, 'message' => 'Project is owned by you, no tracking needed']);
+        }
+
+        // Marcar como trackeado
+        $projectModel->markTracked((int) $projectId, $config->id);
+
+        // Verificar si ya tiene tareas en DB local
+        $taskModel = new SyncTaskModel();
+        $existingTasks = $taskModel->findByProject((int) $projectId, $config->id);
+
+        if (!empty($existingTasks)) {
+            return $this->respondSuccess(['tracked' => true, 'message' => 'Project already synced']);
+        }
+
+        // Primera vez: obtener datos desde Odoo directamente
+        try {
+            $odoo = new OdooService([
+                'url' => $config->url,
+                'dbName' => $config->dbName,
+                'username' => $config->username,
+                'apiKey' => $config->apiKey,
+            ]);
+            $odoo->authenticate();
+
+            // 1. Obtener etapas del proyecto
+            $rawStages = $odoo->fetchStageNames((int) $projectId);
+
+            // Guardar etapas en syncstage
+            $stageModel = new SyncStageModel();
+            foreach ($rawStages as $stage) {
+                $stageModel->upsert($stage['id'], $config->id, [
+                    'name' => $stage['name'],
+                    'sequence' => $stage['sequence'],
+                ]);
+            }
+
+            // 2. Obtener tareas del proyecto
+            $rawTasks = $odoo->fetchTasks((int) $projectId);
+
+            // Obtener nombres de usuarios asignados
+            $allUserIds = [];
+            foreach ($rawTasks as $task) {
+                if (!empty($task['user_ids'])) {
+                    foreach ($task['user_ids'] as $id) {
+                        if (is_int($id)) {
+                            $allUserIds[] = $id;
+                        }
+                    }
+                }
+            }
+            $userNames = $odoo->fetchUserNames(array_values(array_unique($allUserIds)));
+
+            // Guardar tareas
+            $taskIds = [];
+            foreach ($rawTasks as $task) {
+                $rawAssignees = $task['user_ids'] ?? [];
+                $assignees = [];
+                foreach ($rawAssignees as $a) {
+                    if (is_array($a) && count($a) >= 2) {
+                        $assignees[] = [$a[0], $a[1]];
+                    } elseif (is_int($a)) {
+                        $assignees[] = [$a, $userNames[$a] ?? ('User #' . $a)];
+                    } elseif (is_string($a)) {
+                        $assignees[] = [(int) $a, $userNames[(int) $a] ?? ('User #' . $a)];
+                    }
+                }
+
+                $stageId = null;
+                if (!empty($task['stage_id']) && is_array($task['stage_id'])) {
+                    $stageId = (int) $task['stage_id'][0];
+                }
+
+                $deadline = $task['date_deadline'] ?? null;
+                if ($deadline === false || $deadline === 'false') $deadline = null;
+                $color = $task['color'] ?? null;
+                if ($color === false || $color === 'false') $color = null;
+
+                $taskModel->upsert($task['id'], $config->id, [
+                    'name' => $task['name'],
+                    'description' => $task['description'] ?? '',
+                    'stageOdooId' => $stageId,
+                    'assigneeIds' => json_encode($assignees),
+                    'priority' => $task['priority'] ?? '0',
+                    'deadline' => $deadline,
+                    'color' => $color,
+                    'projectOdooId' => (int) $projectId,
+                ]);
+
+                $taskIds[] = (int) $task['id'];
+            }
+
+            // 3. Obtener partes de hora de esas tareas
+            if (!empty($taskIds)) {
+                $allTimesheets = $odoo->fetchAllTimesheets($taskIds);
+
+                // Obtener empleados para mapeo employee→user
+                $employeeUserMap = [];
+                try {
+                    $employees = $odoo->fetchEmployees();
+                    foreach ($employees as $emp) {
+                        if ($emp['userId'] !== null) {
+                            $employeeUserMap[$emp['id']] = $emp['userId'];
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', "[TrackProject] Could not fetch employees: {$e->getMessage()}");
+                }
+
+                // Guardar partes de hora
+                $tsModel = new SyncTimesheetModel();
+                foreach ($allTimesheets as $ts) {
+                    $tsTaskOdooId = is_array($ts['task_id'] ?? null) ? (int) $ts['task_id'][0] : (int) ($ts['task_id'] ?? 0);
+
+                    $userId2 = null;
+                    if (!empty($ts['employee_id']) && $ts['employee_id'] !== false) {
+                        $empId = is_array($ts['employee_id']) ? (int) $ts['employee_id'][0] : (int) $ts['employee_id'];
+                        $userId2 = $employeeUserMap[$empId] ?? $empId;
+                    }
+                    if ($userId2 === null && !empty($ts['user_id']) && $ts['user_id'] !== false) {
+                        $userId2 = is_array($ts['user_id']) ? (int) $ts['user_id'][0] : (int) $ts['user_id'];
+                    }
+
+                    $tsDate = $ts['date'] ?? null;
+                    if ($tsDate === false || $tsDate === 'false') $tsDate = null;
+                    $tsName = $ts['name'] ?? '';
+                    if ($tsName === false) $tsName = '';
+                    if (mb_strlen($tsName) > 255) $tsName = mb_substr($tsName, 0, 255);
+
+                    $tsUpsertData = [
+                        'name' => $tsName,
+                        'unitAmount' => (float) ($ts['unit_amount'] ?? 0),
+                        'date' => $tsDate,
+                        'userOdooId' => $userId2,
+                        'taskOdooId' => $tsTaskOdooId,
+                    ];
+                    if (!empty($ts['employee_id']) && $ts['employee_id'] !== false) {
+                        $empId = is_array($ts['employee_id']) ? (int) $ts['employee_id'][0] : (int) $ts['employee_id'];
+                        $tsUpsertData['employeeOdooId'] = $empId;
+                    }
+                    $tsModel->upsert((int) $ts['id'], $config->id, $tsUpsertData);
+                }
+            }
+
+            return $this->respondSuccess(['tracked' => true, 'message' => 'Project data fetched from Odoo and saved locally']);
+        } catch (\Exception $e) {
+            return $this->respondError("Failed to fetch project data from Odoo: {$e->getMessage()}", 502);
+        }
+    }
+
     public function status()
     {
         $userId = $this->getUserId();

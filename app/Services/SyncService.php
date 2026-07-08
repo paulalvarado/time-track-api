@@ -64,8 +64,21 @@ class SyncService
                 }
             }
 
-            if (empty($myProjectIds)) {
-                echo "  ⚠️ No projects assigned to you. Sync complete (only projects saved).\n";
+            // Also include "tracked" projects (non-owned but visited by user)
+            $trackedProjectIds = [];
+            $trackedProjects = $syncProjectModel->findTrackedByConfig($odooConfigId);
+            foreach ($trackedProjects as $tp) {
+                $pid = (int) $tp->odooId;
+                // Only include if not already in my projects
+                if (!in_array($pid, $myProjectIds, true)) {
+                    $trackedProjectIds[] = $pid;
+                }
+            }
+
+            $projectIdsToSync = array_merge($myProjectIds, $trackedProjectIds);
+
+            if (empty($projectIdsToSync)) {
+                echo "  ⚠️ No projects assigned to you and no tracked projects. Sync complete (only projects saved).\n";
                 $syncStateModel->upsert($odooConfigId, [
                     'syncing' => false,
                     'lastSyncAt' => date('Y-m-d H:i:s'),
@@ -75,11 +88,13 @@ class SyncService
                 return;
             }
 
-            echo "  [1/5] " . count($myProjectIds) . " projects assigned to you\n";
+            $myCount = count($myProjectIds);
+            $trackedCount = count($trackedProjectIds);
+            echo "  [1/5] {$myCount} projects assigned to you" . ($trackedCount > 0 ? ", {$trackedCount} tracked projects" : "") . "\n";
 
             // ========================================================================
             // FASE 2: Stages + relaciones proyecto-etapa (1 llamada)
-            // Solo para los proyectos del usuario autenticado
+            // Para proyectos del usuario + proyectos trackeados
             // ========================================================================
             echo "  [2/5] Fetching stages for your projects...\n";
             $allStages = [];
@@ -88,10 +103,10 @@ class SyncService
             $odooStages = $odoo->fetchAllStages();
             foreach ($odooStages as $s) {
                 $allStages[$s['id']] = $s;
-                // Build project-stage pairs: only link stages to my projects
+                // Build project-stage pairs: link stages to my + tracked projects
                 if (!empty($s['project_ids']) && is_array($s['project_ids'])) {
                     foreach ($s['project_ids'] as $pid) {
-                        if (in_array((int) $pid, $myProjectIds, true)) {
+                        if (in_array((int) $pid, $projectIdsToSync, true)) {
                             $projectStagePairs[] = (int) $s['id'] . ':' . (int) $pid;
                         }
                     }
@@ -100,22 +115,22 @@ class SyncService
             echo "  [2/5] " . count($allStages) . " stages fetched\n";
 
             // ========================================================================
-            // FASE 3: Tareas (1 llamada masiva, filtrar solo mis proyectos)
+            // FASE 3: Tareas (1 llamada masiva, filtrar solo proyectos relevantes)
             // ========================================================================
             echo "  [3/5] Fetching all tasks...\n";
             $odooTasks = $odoo->fetchAllTasks($projectIds);
             echo "  [3/5] " . count($odooTasks) . " tasks fetched\n";
 
-            // Attach projectOdooId and filter only tasks from my projects
+            // Attach projectOdooId and filter only tasks from relevant projects (mine + tracked)
             $allTasks = [];
             foreach ($odooTasks as $t) {
                 $t['projectOdooId'] = is_array($t['project_id'] ?? null) ? (int) $t['project_id'][0] : (int) ($t['project_id'] ?? 0);
-                // Only keep tasks from projects assigned to this user
-                if (in_array($t['projectOdooId'], $myProjectIds, true)) {
+                // Only keep tasks from projects that are mine or tracked
+                if (in_array($t['projectOdooId'], $projectIdsToSync, true)) {
                     $allTasks[] = $t;
                 }
             }
-            echo "  [3/5] " . count($allTasks) . " tasks are in your projects\n";
+            echo "  [3/5] " . count($allTasks) . " tasks are in your projects (mine + tracked)\n";
 
             // ========================================================================
             // FASE 4: Timesheets (1 llamada masiva en batches de 100)

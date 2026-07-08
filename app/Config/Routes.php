@@ -34,6 +34,7 @@ $routes->post('/api/projects/(:num)/tasks/(:num)/timesheets/batch', 'TimesheetCo
 
 // Sync endpoints
 $routes->get('/api/sync/projects', 'SyncController::listProjects', ['filter' => 'auth']);
+$routes->post('/api/sync/projects/(:num)/track', 'SyncController::trackProject/$1', ['filter' => 'auth']);
 $routes->get('/api/sync/projects/(:num)/stages', 'SyncController::listStages/$1', ['filter' => 'auth']);
 $routes->get('/api/sync/projects/(:num)/tasks', 'SyncController::listTasks/$1', ['filter' => 'auth']);
 $routes->get('/api/sync/projects/(:num)/tasks/(:num)', 'SyncController::getTask/$1/$2', ['filter' => 'auth']);

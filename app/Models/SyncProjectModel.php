@@ -11,7 +11,7 @@ class SyncProjectModel extends Model
     protected $useAutoIncrement = false;
     protected $returnType = 'object';
     protected $useSoftDeletes = false;
-    protected $allowedFields = ['id', 'odooId', 'name', 'color', 'odooUserId', 'odooConfigId', 'createdAt', 'updatedAt'];
+    protected $allowedFields = ['id', 'odooId', 'name', 'color', 'odooUserId', 'odooConfigId', 'isTracked', 'createdAt', 'updatedAt'];
     protected $useTimestamps = true;
     protected $dateFormat = 'datetime';
     protected $createdField = 'createdAt';
@@ -25,6 +25,21 @@ class SyncProjectModel extends Model
     public function findByConfig(string $odooConfigId)
     {
         return $this->where('odooConfigId', $odooConfigId)->findAll();
+    }
+
+    public function findTrackedByConfig(string $odooConfigId)
+    {
+        return $this->where('odooConfigId', $odooConfigId)
+            ->where('isTracked', true)
+            ->findAll();
+    }
+
+    public function markTracked(int $odooId, string $odooConfigId): void
+    {
+        $existing = $this->findByOdooId($odooId, $odooConfigId);
+        if ($existing) {
+            $this->update($existing->id, ['isTracked' => true]);
+        }
     }
 
     public function upsert(int $odooId, string $odooConfigId, array $data): void
