@@ -22,10 +22,17 @@ $routes->post('/api/odoo/config', 'OdooConfigController::save', ['filter' => 'au
 $routes->get('/api/odoo/config', 'OdooConfigController::get', ['filter' => 'auth']);
 $routes->post('/api/odoo/test', 'OdooConfigController::test', ['filter' => 'auth']);
 $routes->post('/api/odoo/gemini-key', 'OdooConfigController::saveGeminiKey', ['filter' => 'auth']);
+$routes->post('/api/odoo/ai-config', 'OdooConfigController::saveAiConfig', ['filter' => 'auth']);
+$routes->post('/api/odoo/ai-test', 'OdooConfigController::testAiConfig', ['filter' => 'auth']);
+$routes->get('/api/odoo/employees', 'OdooConfigController::listEmployees', ['filter' => 'auth']);
+$routes->post('/api/odoo/employee-preference', 'OdooConfigController::saveEmployeePreference', ['filter' => 'auth']);
+$routes->get('/api/odoo/employee-preference', 'OdooConfigController::getEmployeePreference', ['filter' => 'auth']);
+$routes->get('/api/odoo/timesheets/all', 'OdooConfigController::timesheetsAll', ['filter' => 'auth']);
 $routes->get('/api/odoo/catalogs', 'CatalogController::list', ['filter' => 'auth']);
 $routes->get('/api/odoo/catalogs/(:any)', 'CatalogController::getByName/$1', ['filter' => 'auth']);
 
 // Projects (legacy)
+$routes->get('/api/projects/count', 'ProjectController::count', ['filter' => 'auth']);
 $routes->get('/api/projects', 'ProjectController::list', ['filter' => 'auth']);
 $routes->get('/api/projects/(:num)/tasks', 'TaskController::listByProject/$1', ['filter' => 'auth']);
 $routes->get('/api/projects/(:num)/tasks/(:num)/timesheets', 'TimesheetController::listByTask/$1/$2', ['filter' => 'auth']);
@@ -43,7 +50,14 @@ $routes->put('/api/sync/projects/(:num)/tasks/(:num)', 'SyncController::updateTa
 $routes->delete('/api/sync/projects/(:num)/tasks/(:num)', 'SyncController::deleteTask/$1/$2', ['filter' => 'auth']);
 $routes->get('/api/sync/projects/(:num)/tasks/(:num)/timesheets', 'SyncController::listTimesheets/$1/$2', ['filter' => 'auth']);
 $routes->get('/api/sync/hours', 'SyncController::totalHours', ['filter' => 'auth']);
+$routes->get('/api/sync/hours-by-employee/(:num)', 'SyncController::hoursByEmployee/$1', ['filter' => 'auth']);
 $routes->get('/api/sync/status', 'SyncController::status', ['filter' => 'auth']);
+
+// User Metadata
+$routes->get('/api/user/metadata', 'UserMetadataController::index', ['filter' => 'auth']);
+$routes->get('/api/user/metadata/(:any)', 'UserMetadataController::get/$1', ['filter' => 'auth']);
+$routes->put('/api/user/metadata/(:any)', 'UserMetadataController::set/$1', ['filter' => 'auth']);
+$routes->delete('/api/user/metadata/(:any)', 'UserMetadataController::delete/$1', ['filter' => 'auth']);
 
 // AI
 $routes->post('/api/ai/transcribe-timesheet', 'AiController::transcribeTimesheet', ['filter' => 'auth']);

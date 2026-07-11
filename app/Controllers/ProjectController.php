@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Models\OdooConfigModel;
 use App\Models\ProjectModel;
+use App\Models\SyncStateModel;
 use App\Services\OdooService;
 
 class ProjectController extends BaseController
@@ -68,5 +69,34 @@ class ProjectController extends BaseController
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    public function count()
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        // Get the user's Odoo UID from sync state to count assigned projects
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+
+        $projectModel = new ProjectModel();
+
+        if ($config) {
+            $syncStateModel = new \App\Models\SyncStateModel();
+            $syncState = $syncStateModel->findByConfigId($config->id);
+
+            if ($syncState && $syncState->odooUid) {
+                $total = $projectModel->countByOdooUserId($userId, (int) $syncState->odooUid);
+            } else {
+                $total = $projectModel->countByUserId($userId);
+            }
+        } else {
+            $total = $projectModel->countByUserId($userId);
+        }
+
+        return $this->respondSuccess(['total' => $total]);
     }
 }

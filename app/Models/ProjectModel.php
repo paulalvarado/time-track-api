@@ -14,6 +14,18 @@ class ProjectModel extends Model
     protected $allowedFields = ['id', 'odooId', 'name', 'userId', 'odooUserId', 'color', 'createdAt'];
     protected $useTimestamps = false;
 
+    public function countByUserId(string $userId): int
+    {
+        return $this->where('userId', $userId)->countAllResults();
+    }
+
+    public function countByOdooUserId(string $userId, int $odooUid): int
+    {
+        return $this->where('userId', $userId)
+            ->where('odooUserId', $odooUid)
+            ->countAllResults();
+    }
+
     public function findByUserId(string $userId)
     {
         return $this->where('userId', $userId)

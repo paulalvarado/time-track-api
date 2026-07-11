@@ -318,6 +318,49 @@ class OdooService
     }
 
     /**
+     * Fetch timesheets for a specific user from Odoo (account.analytic.line).
+     */
+    public function fetchTimesheetsByUser(int $userId): array
+    {
+        return $this->searchReadAll(
+            'account.analytic.line',
+            ['id', 'name', 'unit_amount', 'date', 'task_id', 'project_id', 'user_id'],
+            [['user_id', '=', $userId]]
+        );
+    }
+
+    /**
+     * Fetch ALL timesheets from Odoo without filter (account.analytic.line).
+     */
+    public function fetchAllTimesheetsRaw(): array
+    {
+        return $this->searchReadAll(
+            'account.analytic.line',
+            ['id', 'name', 'unit_amount', 'date', 'task_id', 'project_id', 'employee_id', 'user_id']
+        );
+    }
+
+    /**
+     * Fetch project names by IDs.
+     */
+    public function fetchProjectNames(array $projectIds): array
+    {
+        if (empty($projectIds)) {
+            return [];
+        }
+        $projects = $this->searchRead(
+            'project.project',
+            ['id', 'name'],
+            [['id', 'in', $projectIds]]
+        );
+        $map = [];
+        foreach ($projects as $p) {
+            $map[$p['id']] = $p['name'] ?? ('Project #' . $p['id']);
+        }
+        return $map;
+    }
+
+    /**
      * Convert a PHP value to an XML-RPC Value.
      */
     private static function php2XmlRpc($value): Value

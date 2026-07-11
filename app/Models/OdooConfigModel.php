@@ -11,7 +11,7 @@ class OdooConfigModel extends Model
     protected $useAutoIncrement = false;
     protected $returnType = 'object';
     protected $useSoftDeletes = false;
-    protected $allowedFields = ['id', 'userId', 'url', 'dbName', 'username', 'apiKey', 'geminiApiKey'];
+    protected $allowedFields = ['id', 'userId', 'url', 'dbName', 'username', 'apiKey', 'geminiApiKey', 'aiProvider', 'aiApiKey', 'aiBaseUrl', 'aiModel', 'selectedEmployeeId', 'selectedOdooUserId'];
     protected $useTimestamps = false;
 
     public function findByUserId(string $userId)

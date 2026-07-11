@@ -576,6 +576,37 @@ class SyncController extends BaseController
         return $this->respondSuccess(['totalHours' => $totalHours]);
     }
 
+    /**
+     * GET /api/sync/hours-by-employee/(:num)
+     * Retorna el total de horas desde la BD local filtrado por employeeOdooId.
+     * Query params: ?period=day|week|month|year
+     */
+    public function hoursByEmployee(int $employeeOdooId)
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+        if (!$config) {
+            return $this->respondSuccess(['totalHours' => 0]);
+        }
+
+        $period = $this->request->getGet('period') ?? 'year';
+
+        $tsModel = new SyncTimesheetModel();
+
+        if (in_array($period, ['day', 'week', 'month', 'year'], true)) {
+            $totalHours = $tsModel->sumByEmployeePeriod($employeeOdooId, $config->id, $period);
+        } else {
+            $totalHours = $tsModel->sumByEmployee($employeeOdooId, $config->id);
+        }
+
+        return $this->respondSuccess(['totalHours' => $totalHours]);
+    }
+
     public function createTask($projectId)
     {
         $userId = $this->getUserId();

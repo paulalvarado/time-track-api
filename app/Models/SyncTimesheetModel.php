@@ -56,6 +56,54 @@ class SyncTimesheetModel extends Model
         return (float) ($result->total ?? 0);
     }
 
+    public function sumByEmployee(int $employeeOdooId, string $odooConfigId): float
+    {
+        $db = $this->db->table($this->table);
+        $db->select('COALESCE(SUM("unitAmount"), 0) as total');
+        $db->where('"employeeOdooId"', $employeeOdooId);
+        $db->where('"odooConfigId"', $odooConfigId);
+        $result = $db->get()->getRow();
+        return (float) ($result->total ?? 0);
+    }
+
+    /**
+     * Suma horas por employeeOdooId filtrado por periodo.
+     *
+     * @param string $period day|week|month|year
+     */
+    public function sumByEmployeePeriod(int $employeeOdooId, string $odooConfigId, string $period): float
+    {
+        $db = $this->db->table($this->table);
+
+        switch ($period) {
+            case 'day':
+                $since = date('Y-m-d 00:00:00');
+                break;
+            case 'week':
+                $since = date('Y-m-d 00:00:00', strtotime('monday this week'));
+                break;
+            case 'month':
+                $since = date('Y-m-01 00:00:00');
+                break;
+            case 'year':
+                $since = date('Y-01-01 00:00:00');
+                break;
+            default:
+                $since = null;
+        }
+
+        $db->select('COALESCE(SUM("unitAmount"), 0) as total');
+        $db->where('"employeeOdooId"', $employeeOdooId);
+        $db->where('"odooConfigId"', $odooConfigId);
+
+        if ($since) {
+            $db->where('"date" >=', $since);
+        }
+
+        $result = $db->get()->getRow();
+        return (float) ($result->total ?? 0);
+    }
+
     private function generateCuid(): string
     {
         return 'c' . bin2hex(random_bytes(12));
