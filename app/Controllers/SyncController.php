@@ -594,7 +594,7 @@ class SyncController extends BaseController
             return $this->respondSuccess(['totalHours' => 0]);
         }
 
-        $period = $this->request->getGet('period') ?? 'year';
+        $period = $this->request->getGet('period') ?? 'week';
 
         $tsModel = new SyncTimesheetModel();
 
