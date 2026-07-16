@@ -8,6 +8,7 @@ use CodeIgniter\HTTP\ResponseInterface;
 use Config\Auth;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
+use App\Models\UserRoleModel;
 
 class AuthFilter implements FilterInterface
 {
@@ -35,6 +36,11 @@ class AuthFilter implements FilterInterface
             $decoded = JWT::decode($token, new Key($config->jwtSecret, $config->jwtAlgorithm));
             $request->userId = $decoded->sub;
             $request->userEmail = $decoded->email ?? null;
+
+            // Cargar permisos del usuario en el request
+            $roleModel = new UserRoleModel();
+            $request->userPermissions = $roleModel->getPermissionsForUser($decoded->sub);
+            $request->isAdmin = in_array('admin.manage_users', $request->userPermissions);
         } catch (\Exception $e) {
             return service('response')
                 ->setStatusCode(401)

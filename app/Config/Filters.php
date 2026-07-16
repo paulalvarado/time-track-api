@@ -29,6 +29,7 @@ class Filters extends BaseFilters
         'performance'   => PerformanceMetrics::class,
         'auth'          => AuthFilter::class,
         'corsfilter'    => CorsFilter::class,
+        'permission'    => \App\Filters\PermissionFilter::class,
     ];
 
     public array $required = [

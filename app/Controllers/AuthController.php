@@ -4,6 +4,8 @@ namespace App\Controllers;
 
 use App\Models\UserModel;
 use App\Models\OdooConfigModel;
+use App\Models\RoleModel;
+use App\Models\UserRoleModel;
 use Config\Auth;
 use Firebase\JWT\JWT;
 
@@ -36,13 +38,31 @@ class AuthController extends BaseController
             'password' => $passwordHash,
         ]);
 
+        // Asignar rol por defecto "user"
+        $roleModel = new RoleModel();
+        $defaultRole = $roleModel->findByName('user');
+        if ($defaultRole) {
+            $userRoleModel = new UserRoleModel();
+            $userRoleModel->assignRole($user->id, $defaultRole->id);
+        }
+
         $token = $this->generateToken($user->id, $user->email);
         $this->setTokenCookie($token);
+
+        $userRoleModel = new \App\Models\UserRoleModel();
+        $isAdmin = $userRoleModel->isAdmin($user->id);
+        $permissions = $userRoleModel->getPermissionsForUser($user->id);
 
         return $this->response
             ->setStatusCode(201)
             ->setJSON([
-                'user' => ['id' => $user->id, 'email' => $user->email, 'name' => $user->name],
+                'user' => [
+                    'id' => $user->id,
+                    'email' => $user->email,
+                    'name' => $user->name,
+                    'isAdmin' => $isAdmin,
+                    'permissions' => $permissions,
+                ],
             ]);
     }
 
@@ -69,10 +89,20 @@ class AuthController extends BaseController
         $token = $this->generateToken($user->id, $user->email);
         $this->setTokenCookie($token);
 
+        $userRoleModel = new \App\Models\UserRoleModel();
+        $isAdmin = $userRoleModel->isAdmin($user->id);
+        $permissions = $userRoleModel->getPermissionsForUser($user->id);
+
         return $this->response
             ->setStatusCode(200)
             ->setJSON([
-                'user' => ['id' => $user->id, 'email' => $user->email, 'name' => $user->name],
+                'user' => [
+                    'id' => $user->id,
+                    'email' => $user->email,
+                    'name' => $user->name,
+                    'isAdmin' => $isAdmin,
+                    'permissions' => $permissions,
+                ],
             ]);
     }
 
@@ -98,12 +128,19 @@ class AuthController extends BaseController
         $configModel = new OdooConfigModel();
         $config = $configModel->findByUserId($userId);
 
+        // Verificar si es admin
+        $userRoleModel = new \App\Models\UserRoleModel();
+        $isAdmin = $userRoleModel->isAdmin($userId);
+        $permissions = $userRoleModel->getPermissionsForUser($userId);
+
         return $this->respondSuccess([
             'user' => [
                 'id' => $user->id,
                 'email' => $user->email,
                 'name' => $user->name,
                 'hasOdooConfig' => $config !== null,
+                'isAdmin' => $isAdmin,
+                'permissions' => $permissions,
             ],
         ]);
     }
