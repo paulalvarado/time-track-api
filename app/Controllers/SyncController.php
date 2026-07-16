@@ -64,6 +64,16 @@ class SyncController extends BaseController
 
         // Full response
         $projects = $projectModel->findByConfig($config->id);
+
+        // Filter by odooUserId (admin feature)
+        $filterUserId = $this->request->getGet('odooUserId');
+        if ($filterUserId !== null && ($this->request->isAdmin ?? false)) {
+            $filterUserId = (int) $filterUserId;
+            $projects = array_filter($projects, function ($p) use ($filterUserId) {
+                return $p->odooUserId !== null && (int) $p->odooUserId === $filterUserId;
+            });
+        }
+
         $projects = array_map(function ($p) use ($odooUid) {
             $pUserOdooId = $p->odooUserId !== null ? (int) $p->odooUserId : null;
             $p->isMine = ($odooUid !== null && $pUserOdooId === $odooUid);
@@ -81,6 +91,65 @@ class SyncController extends BaseController
             'syncing' => self::castBool($state->syncing ?? false),
             'lastSyncAt' => $state->lastSyncAt ? date('c', strtotime($state->lastSyncAt)) : null,
         ]);
+    }
+
+    public function listProjectUsers()
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+        if (!$config) {
+            return $this->respondSuccess(['users' => []]);
+        }
+
+        // Get distinct odooUserId from syncproject
+        $db = \Config\Database::connect();
+        $builder = $db->table('public.syncproject');
+        $builder->distinct()->select('"odooUserId"');
+        $builder->where('"odooConfigId"', $config->id);
+        $builder->where('"odooUserId" IS NOT NULL');
+        $rows = $builder->get()->getResult();
+
+        $userIds = array_map(function ($r) {
+            return (int) $r->odooUserId;
+        }, $rows);
+
+        if (empty($userIds)) {
+            return $this->respondSuccess(['users' => []]);
+        }
+
+        // Get user names from Odoo
+        try {
+            $odoo = new OdooService([
+                'url' => $config->url,
+                'dbName' => $config->dbName,
+                'username' => $config->username,
+                'apiKey' => $config->apiKey,
+            ]);
+            $odoo->authenticate();
+            $userNames = $odoo->fetchUserNames($userIds);
+        } catch (\Throwable $e) {
+            $userNames = [];
+        }
+
+        $users = [];
+        foreach ($userIds as $id) {
+            $users[] = [
+                'odooUserId' => $id,
+                'name' => $userNames[$id] ?? ('User #' . $id),
+            ];
+        }
+
+        // Sort by name
+        usort($users, function ($a, $b) {
+            return strcasecmp($a['name'], $b['name']);
+        });
+
+        return $this->respondSuccess(['users' => $users]);
     }
 
     public function listStages($projectId)
