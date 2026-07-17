@@ -609,39 +609,420 @@ class AdminController extends BaseController
     {
         $db = \Config\Database::connect();
 
-        // Empleados con timesheets
-        $empRows = $db->query('SELECT DISTINCT ts."employeeOdooId" as id FROM public.synctimesheet ts WHERE ts."employeeOdooId" IS NOT NULL')->getResult();
-
-        // Resolver nombres desde catálogo
+        // Todos los empleados desde el catálogo (no solo los que tienen timesheets)
         $employeeList = [];
-        foreach ($empRows as $e) {
-            $empId = (int) $e->id;
-            $nameRow = $db->query('SELECT ci.value FROM "CatalogItem" ci INNER JOIN "Catalog" c ON c.id = ci."catalogId" WHERE c.name = \'employees\' AND ci."key" = ' . $db->escape((string) $empId) . ' LIMIT 1')->getRow();
+        $catRows = $db->query('SELECT DISTINCT ci."key", ci.value FROM "CatalogItem" ci INNER JOIN "Catalog" c ON c.id = ci."catalogId" WHERE c.name = \'employees\' ORDER BY ci.value ASC')->getResult();
+        $seen = [];
+        foreach ($catRows as $r) {
+            $id = (int) $r->key;
+            if (isset($seen[$id])) continue;
+            $seen[$id] = true;
             $employeeList[] = [
-                'id'   => $empId,
-                'name' => $nameRow->value ?? ('Employee #' . $empId),
+                'id'   => $id,
+                'name' => $r->value ?? ('Employee #' . $id),
             ];
         }
-        usort($employeeList, fn($a, $b) => strcasecmp($a['name'], $b['name']));
-        // Deduplicar por id
-        $seen = [];
-        $employeeList = array_filter($employeeList, function ($e) use (&$seen) {
-            if (isset($seen[$e['id']])) return false;
-            $seen[$e['id']] = true;
-            return true;
-        });
-        $employeeList = array_values($employeeList);
 
-        // Proyectos con timesheets
-        $projRows = $db->query('SELECT DISTINCT pr."odooId" as id, pr.name FROM public.synctimesheet ts INNER JOIN public.synctask tk ON tk."odooId" = ts."taskOdooId" AND tk."odooConfigId" = ts."odooConfigId" INNER JOIN public.syncproject pr ON pr."odooId" = tk."projectOdooId" AND pr."odooConfigId" = ts."odooConfigId" WHERE pr."odooId" IS NOT NULL ORDER BY pr.name ASC')->getResult();
+        // Todos los proyectos desde syncproject (no solo los que tienen timesheets)
+        $projRows = $db->query('SELECT "odooId", name FROM public.syncproject WHERE "odooId" IS NOT NULL ORDER BY name ASC')->getResult();
+        $seenProj = [];
+        $projectList = [];
+        foreach ($projRows as $p) {
+            $id = (int) $p->odooId;
+            if (isset($seenProj[$id])) continue;
+            $seenProj[$id] = true;
+            $projectList[] = [
+                'id'   => $id,
+                'name' => $p->name ?? ('Project #' . $id),
+            ];
+        }
 
         return $this->respondSuccess([
             'employees' => $employeeList,
-            'projects' => array_map(fn($p) => [
-                'id'   => (int) $p->id,
-                'name' => $p->name ?? ('Project #' . $p->id),
-            ], $projRows),
+            'projects' => $projectList,
         ]);
+    }
+
+    /**
+     * GET /api/admin/timesheets/report
+     * Reporte agrupado de partes de horas con filtros de fecha y agrupación.
+     *
+     * Query params:
+     *   dateFrom    (YYYY-MM-DD)
+     *   dateTo      (YYYY-MM-DD)
+     *   groupBy     (employee_project_task | project_employee_task)
+     *   employeeId  (int) — filtrar por empleado
+     *   projectId   (int) — filtrar por proyecto
+     */
+    public function report()
+    {
+        $dateFrom   = $this->request->getGet('dateFrom');
+        $dateTo     = $this->request->getGet('dateTo');
+        $groupBy    = $this->request->getGet('groupBy') ?? 'employee_project_task';
+        $format     = $this->request->getGet('format'); // xlsx or csv
+        $employeeId = $this->request->getGet('employeeId');
+        $projectId  = $this->request->getGet('projectId');
+
+        $db = \Config\Database::connect();
+
+        // ── WHERE ──
+        $where = 'WHERE 1=1';
+        if ($dateFrom) {
+            $where .= ' AND ts."date" >= ' . $db->escape($dateFrom . ' 00:00:00');
+        }
+        if ($dateTo) {
+            $where .= ' AND ts."date" <= ' . $db->escape($dateTo . ' 23:59:59');
+        }
+        if ($employeeId) {
+            $where .= ' AND ts."employeeOdooId" = ' . (int) $employeeId;
+        }
+        if ($projectId) {
+            $where .= ' AND pr."odooId" = ' . (int) $projectId;
+        }
+
+        $from = 'FROM public.synctimesheet ts
+            INNER JOIN public.synctask tk ON tk."odooId" = ts."taskOdooId" AND tk."odooConfigId" = ts."odooConfigId"
+            INNER JOIN public.syncproject pr ON pr."odooId" = tk."projectOdooId" AND pr."odooConfigId" = ts."odooConfigId"';
+
+        // ── Fetch all rows ──
+        $sql = "SELECT ts.id, ts.name as description, ts.\"unitAmount\" as hours, ts.date,
+                       ts.\"taskOdooId\" as taskId, tk.name as taskName,
+                       pr.\"odooId\" as projectId, pr.name as projectName,
+                       ts.\"employeeOdooId\" as employeeId, ts.\"userOdooId\" as userId
+                $from $where
+                ORDER BY ts.date ASC, ts.\"unitAmount\" DESC";
+
+        $rows = $db->query($sql)->getResult();
+
+        // ── Resolver nombres de empleados ──
+        $empIds = [];
+        foreach ($rows as $r) {
+            if ($r->employeeid) $empIds[(int) $r->employeeid] = true;
+        }
+        $empNames = [];
+        if (!empty($empIds)) {
+            $keys = implode(',', array_map(fn($id) => $db->escape((string) $id), array_keys($empIds)));
+            $catSql = 'SELECT DISTINCT ci."key", ci.value FROM "CatalogItem" ci INNER JOIN "Catalog" c ON c.id = ci."catalogId" WHERE c.name = \'employees\' AND ci."key" IN (' . $keys . ')';
+            $catalogItems = $db->query($catSql)->getResult();
+            foreach ($catalogItems as $ci) {
+                $empNames[$ci->key] = $ci->value;
+            }
+        }
+
+        $getEmployeeName = function ($empId) use ($empNames) {
+            if (!$empId) return 'Unknown';
+            return $empNames[(string) $empId] ?? ('Employee #' . $empId);
+        };
+
+        // ── Build entries list ──
+        $entries = [];
+        foreach ($rows as $r) {
+            $eid = $r->employeeid ? (int) $r->employeeid : 0;
+            $pid = $r->projectid ? (int) $r->projectid : 0;
+            $tid = $r->taskid ? (int) $r->taskid : 0;
+
+            $entries[] = [
+                'employeeId'   => $eid,
+                'employeeName' => $getEmployeeName($eid),
+                'projectId'    => $pid,
+                'projectName'  => $r->projectname ?? ('Project #' . $pid),
+                'taskId'       => $tid,
+                'taskName'     => $r->taskname ?? ('Task #' . $tid),
+                'date'         => $r->date,
+                'description'  => $r->description ?? '',
+                'hours'        => (float) ($r->hours ?? 0),
+            ];
+        }
+
+        // ── Group data ──
+        $totalHours = 0;
+        $groups = [];
+
+        if ($groupBy === 'project_employee_task') {
+            // Group by Project → Employee → Task
+            $projectMap = [];
+            foreach ($entries as $e) {
+                $totalHours += $e['hours'];
+                $pk = (string) $e['projectId'];
+
+                if (!isset($projectMap[$pk])) {
+                    $projectMap[$pk] = [
+                        'name'        => $e['projectName'],
+                        'totalHours'  => 0,
+                        'employees'   => [],
+                    ];
+                }
+                $projectMap[$pk]['totalHours'] += $e['hours'];
+
+                $ek = $pk . ':' . $e['employeeId'];
+                if (!isset($projectMap[$pk]['employees'][$ek])) {
+                    $projectMap[$pk]['employees'][$ek] = [
+                        'name'       => $e['employeeName'],
+                        'totalHours' => 0,
+                        'tasks'      => [],
+                    ];
+                }
+                $projectMap[$pk]['employees'][$ek]['totalHours'] += $e['hours'];
+
+                $tk = $ek . ':' . $e['taskId'];
+                if (!isset($projectMap[$pk]['employees'][$ek]['tasks'][$tk])) {
+                    $projectMap[$pk]['employees'][$ek]['tasks'][$tk] = [
+                        'name'       => $e['taskName'],
+                        'totalHours' => 0,
+                        'entries'    => [],
+                    ];
+                }
+                $projectMap[$pk]['employees'][$ek]['tasks'][$tk]['totalHours'] += $e['hours'];
+                $projectMap[$pk]['employees'][$ek]['tasks'][$tk]['entries'][] = [
+                    'date'        => $e['date'],
+                    'description' => $e['description'],
+                    'hours'       => $e['hours'],
+                ];
+            }
+
+            // Sort projects by name, flatten employee map
+            usort($projectMap, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+            foreach ($projectMap as &$proj) {
+                $proj['employees'] = array_values($proj['employees']);
+                usort($proj['employees'], fn($a, $b) => strcasecmp($a['name'], $b['name']));
+                foreach ($proj['employees'] as &$emp) {
+                    $emp['tasks'] = array_values($emp['tasks']);
+                    usort($emp['tasks'], fn($a, $b) => strcasecmp($a['name'], $b['name']));
+                }
+            }
+            $groups = $projectMap;
+
+        } else {
+            // Default: Group by Employee → Project → Task
+            $employeeMap = [];
+            foreach ($entries as $e) {
+                $totalHours += $e['hours'];
+                $ek = (string) $e['employeeId'];
+
+                if (!isset($employeeMap[$ek])) {
+                    $employeeMap[$ek] = [
+                        'name'       => $e['employeeName'],
+                        'totalHours' => 0,
+                        'projects'   => [],
+                    ];
+                }
+                $employeeMap[$ek]['totalHours'] += $e['hours'];
+
+                $pk = $ek . ':' . $e['projectId'];
+                if (!isset($employeeMap[$ek]['projects'][$pk])) {
+                    $employeeMap[$ek]['projects'][$pk] = [
+                        'name'       => $e['projectName'],
+                        'totalHours' => 0,
+                        'tasks'      => [],
+                    ];
+                }
+                $employeeMap[$ek]['projects'][$pk]['totalHours'] += $e['hours'];
+
+                $tk = $pk . ':' . $e['taskId'];
+                if (!isset($employeeMap[$ek]['projects'][$pk]['tasks'][$tk])) {
+                    $employeeMap[$ek]['projects'][$pk]['tasks'][$tk] = [
+                        'name'       => $e['taskName'],
+                        'totalHours' => 0,
+                        'entries'    => [],
+                    ];
+                }
+                $employeeMap[$ek]['projects'][$pk]['tasks'][$tk]['totalHours'] += $e['hours'];
+                $employeeMap[$ek]['projects'][$pk]['tasks'][$tk]['entries'][] = [
+                    'date'        => $e['date'],
+                    'description' => $e['description'],
+                    'hours'       => $e['hours'],
+                ];
+            }
+
+            // Sort employees by name, flatten project map
+            usort($employeeMap, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+            foreach ($employeeMap as &$emp) {
+                $emp['projects'] = array_values($emp['projects']);
+                usort($emp['projects'], fn($a, $b) => strcasecmp($a['name'], $b['name']));
+                foreach ($emp['projects'] as &$proj) {
+                    $proj['tasks'] = array_values($proj['tasks']);
+                    usort($proj['tasks'], fn($a, $b) => strcasecmp($a['name'], $b['name']));
+                }
+            }
+            $groups = $employeeMap;
+        }
+
+        // ── Export format? ──
+        if ($format === 'xlsx' || $format === 'csv') {
+            if ($format === 'csv') {
+                return $this->exportCsv([]);
+            }
+            return $this->exportReportXlsx($groups, $totalHours, $dateFrom, $dateTo, $groupBy);
+        }
+
+        return $this->respondSuccess([
+            'groups'     => $groups,
+            'totalHours' => $totalHours,
+            'dateFrom'   => $dateFrom,
+            'dateTo'     => $dateTo,
+            'groupBy'    => $groupBy,
+        ]);
+    }
+
+    /**
+     * Convierte horas decimales a formato HH:MM.
+     * Ej: 2.5 → "2:30", 89.5 → "89:30"
+     */
+    private function formatHoursHHMM(float $hours): string
+    {
+        $totalMinutes = (int) round($hours * 60);
+        $h = intdiv($totalMinutes, 60);
+        $m = $totalMinutes % 60;
+        return sprintf('%d:%02d', $h, $m);
+    }
+
+    /**
+     * Exporta el reporte agrupado a XLSX con formato jerárquico.
+     */
+    private function exportReportXlsx(array $groups, float $totalHours, ?string $dateFrom, ?string $dateTo, string $groupBy): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Reporte');
+
+        // Estilos
+        $titleStyle = [
+            'font' => ['bold' => true, 'size' => 14, 'color' => ['rgb' => '171717']],
+        ];
+        $dateRangeStyle = [
+            'font' => ['size' => 11, 'color' => ['rgb' => '666666']],
+        ];
+        $headerStyle = [
+            'font' => ['bold' => true, 'size' => 10, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => '171717']],
+        ];
+        $groupStyle = [
+            'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => '171717']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => 'F5F5F5']],
+        ];
+        $subGroupStyle = [
+            'font' => ['bold' => true, 'size' => 10, 'color' => ['rgb' => '404040']],
+        ];
+        $entryFont = [
+            'font' => ['size' => 10, 'color' => ['rgb' => '333333']],
+        ];
+
+        $isEmployeeGroup = ($groupBy === 'employee_project_task');
+
+        // ── Row 1: Título ──
+        $sheet->getCell('A1')->setValue($isEmployeeGroup ? 'Reporte de partes de horas' : 'Reporte de partes de horas');
+        $sheet->getStyle('A1')->applyFromArray($titleStyle);
+
+        // ── Row 2: Rango de fechas ──
+        $dateRangeStr = '';
+        if ($dateFrom && $dateTo) {
+            $dateRangeStr = date('d/m/Y', strtotime($dateFrom)) . ' - ' . date('d/m/Y', strtotime($dateTo));
+        } elseif ($dateFrom) {
+            $dateRangeStr = 'Desde ' . date('d/m/Y', strtotime($dateFrom));
+        } elseif ($dateTo) {
+            $dateRangeStr = 'Hasta ' . date('d/m/Y', strtotime($dateTo));
+        }
+        $sheet->getCell('A2')->setValue($dateRangeStr);
+        $sheet->getStyle('A2')->applyFromArray($dateRangeStyle);
+
+        // ── Row 4: Headers ──
+        $headerRow = 4;
+        $sheet->getCell('A' . $headerRow)->setValue('Fecha');
+        $sheet->getCell('B' . $headerRow)->setValue('Descripción');
+        $sheet->getCell('C' . $headerRow)->setValue('Horas');
+        $sheet->getStyle('A' . $headerRow . ':C' . $headerRow)->applyFromArray($headerStyle);
+
+        // Set column widths
+        $sheet->getColumnDimension('A')->setWidth(14);
+        $sheet->getColumnDimension('B')->setWidth(60);
+        $sheet->getColumnDimension('C')->setWidth(12);
+
+        $row = $headerRow + 1;
+
+        foreach ($groups as $group) {
+            if ($isEmployeeGroup) {
+                // Group = Employee → Project → Task
+                $employeeName = $group['name'];
+                $employeeTotal = $group['totalHours'];
+
+                // Employee header row
+                $sheet->getCell('A' . $row)->setValue($employeeName);
+                $sheet->getCell('C' . $row)->setValue($this->formatHoursHHMM($employeeTotal));
+                $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($groupStyle);
+                $row++;
+
+                foreach ($group['projects'] as $project) {
+                    $projectName = $project['name'];
+                    $projectTotal = $project['totalHours'];
+
+                    // Project header row
+                    $sheet->getCell('A' . $row)->setValue('  ' . $projectName);
+                    $sheet->getCell('C' . $row)->setValue($this->formatHoursHHMM($projectTotal));
+                    $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($subGroupStyle);
+                    $row++;
+
+                    foreach ($project['tasks'] as $task) {
+                        foreach ($task['entries'] as $entry) {
+                            $sheet->getCell('A' . $row)->setValue($entry['date'] ? date('d/m/Y', strtotime($entry['date'])) : '-');
+                            $sheet->getCell('B' . $row)->setValue($entry['description'] ?: $task['name']);
+                            $sheet->getCell('C' . $row)->setValue($this->formatHoursHHMM($entry['hours']));
+                            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($entryFont);
+                            $row++;
+                        }
+                    }
+                }
+            } else {
+                // Group = Project → Employee → Task
+                $projectName = $group['name'];
+                $projectTotal = $group['totalHours'];
+
+                // Project header row
+                $sheet->getCell('A' . $row)->setValue($projectName);
+                $sheet->getCell('C' . $row)->setValue($this->formatHoursHHMM($projectTotal));
+                $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($groupStyle);
+                $row++;
+
+                foreach ($group['employees'] as $employee) {
+                    $employeeName = $employee['name'];
+                    $employeeTotal = $employee['totalHours'];
+
+                    // Employee header row
+                    $sheet->getCell('A' . $row)->setValue('  ' . $employeeName);
+                    $sheet->getCell('C' . $row)->setValue($this->formatHoursHHMM($employeeTotal));
+                    $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($subGroupStyle);
+                    $row++;
+
+                    foreach ($employee['tasks'] as $task) {
+                        foreach ($task['entries'] as $entry) {
+                            $sheet->getCell('A' . $row)->setValue($entry['date'] ? date('d/m/Y', strtotime($entry['date'])) : '-');
+                            $sheet->getCell('B' . $row)->setValue($entry['description'] ?: $task['name']);
+                            $sheet->getCell('C' . $row)->setValue($this->formatHoursHHMM($entry['hours']));
+                            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($entryFont);
+                            $row++;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Total row
+        $row++;
+        $sheet->getCell('A' . $row)->setValue('Total general');
+        $sheet->getCell('C' . $row)->setValue($this->formatHoursHHMM($totalHours));
+        $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray($groupStyle);
+
+        $filename = 'reporte_horas_' . date('Ymd_His') . '.xlsx';
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        ob_start();
+        $writer->save('php://output');
+        $xlsx = ob_get_clean();
+
+        return $this->response
+            ->setStatusCode(200)
+            ->setContentType('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            ->setHeader('Content-Disposition', 'attachment; filename="' . $filename . '"')
+            ->setBody($xlsx);
     }
 
     // ─── HELPERS ───────────────────────────────────────────────

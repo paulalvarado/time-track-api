@@ -20,6 +20,7 @@ $routes->get('/api/auth/me', 'AuthController::me', ['filter' => ['auth']]);
 // ─── Odoo Config ──────────────────────────────────────────────
 $routes->post('/api/odoo/config', 'OdooConfigController::save', ['filter' => ['auth', 'permission:odoo.manage_config']]);
 $routes->get('/api/odoo/config', 'OdooConfigController::get', ['filter' => ['auth', 'permission:odoo.view_config']]);
+$routes->post('/api/odoo/sync', 'OdooConfigController::sync', ['filter' => ['auth', 'permission:odoo.manage_config']]);
 $routes->post('/api/odoo/test', 'OdooConfigController::test', ['filter' => ['auth', 'permission:odoo.test_connection']]);
 $routes->post('/api/odoo/gemini-key', 'OdooConfigController::saveGeminiKey', ['filter' => ['auth', 'permission:odoo.manage_ai']]);
 $routes->post('/api/odoo/ai-config', 'OdooConfigController::saveAiConfig', ['filter' => ['auth', 'permission:odoo.manage_ai']]);
@@ -77,6 +78,7 @@ $routes->delete('/api/admin/roles/(:any)', 'AdminController::deleteRole/$1', ['f
 $routes->get('/api/admin/stats', 'AdminController::stats', ['filter' => ['auth', 'permission:admin.manage_users']]);
 $routes->get('/api/admin/timesheets/export', 'AdminController::exportTimesheets', ['filter' => ['auth', 'permission:odoo.view_timesheets_all']]);
 $routes->get('/api/admin/timesheets', 'AdminController::listTimesheets', ['filter' => ['auth', 'permission:odoo.view_timesheets_all']]);
+$routes->get('/api/admin/timesheets/report', 'AdminController::report', ['filter' => ['auth', 'permission:odoo.view_timesheets_all']]);
 $routes->get('/api/admin/timesheets/filters', 'AdminController::timesheetFilters', ['filter' => ['auth', 'permission:odoo.view_timesheets_all']]);
 
 $routes->get('/api/admin/permissions', 'AdminController::listPermissions', ['filter' => ['auth', 'permission:admin.manage_permissions']]);

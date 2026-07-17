@@ -4,6 +4,8 @@ namespace App\Controllers;
 
 use App\Models\OdooConfigModel;
 use App\Services\OdooService;
+use App\Services\CatalogSyncService;
+use App\Services\SyncService;
 
 class OdooConfigController extends BaseController
 {
@@ -41,14 +43,34 @@ class OdooConfigController extends BaseController
             'apiKey' => $apiKey,
         ]);
 
-        return $this->respondSuccess([
+        // ── Sincronizar datos desde Odoo ─────────────────────
+        $syncErrors = [];
+        try {
+            CatalogSyncService::syncCatalogs($config->id);
+        } catch (\Exception $e) {
+            $syncErrors[] = 'Catalog sync: ' . $e->getMessage();
+        }
+        try {
+            SyncService::syncAll($config->id);
+        } catch (\Exception $e) {
+            $syncErrors[] = 'Data sync: ' . $e->getMessage();
+        }
+
+        $response = [
             'config' => [
                 'id' => $config->id,
                 'url' => $config->url,
                 'dbName' => $config->dbName,
                 'username' => $config->username,
             ],
-        ]);
+            'synced' => empty($syncErrors),
+        ];
+
+        if (!empty($syncErrors)) {
+            $response['syncErrors'] = $syncErrors;
+        }
+
+        return $this->respondSuccess($response);
     }
 
     public function get()
@@ -379,5 +401,40 @@ class OdooConfigController extends BaseController
         } catch (\Exception $e) {
             return $this->respondError($e->getMessage());
         }
+    }
+
+    /**
+     * Sincroniza catálogos y datos completos desde Odoo para el usuario actual.
+     * POST /api/odoo/sync
+     */
+    public function sync()
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $configModel = new OdooConfigModel();
+        $config = $configModel->findByUserId($userId);
+        if (!$config) {
+            return $this->respondError('Odoo not configured');
+        }
+
+        $syncErrors = [];
+        try {
+            CatalogSyncService::syncCatalogs($config->id);
+        } catch (\Exception $e) {
+            $syncErrors[] = 'Catalog sync: ' . $e->getMessage();
+        }
+        try {
+            SyncService::syncAll($config->id);
+        } catch (\Exception $e) {
+            $syncErrors[] = 'Data sync: ' . $e->getMessage();
+        }
+
+        return $this->respondSuccess([
+            'synced' => empty($syncErrors),
+            'syncErrors' => !empty($syncErrors) ? $syncErrors : null,
+        ]);
     }
 }
