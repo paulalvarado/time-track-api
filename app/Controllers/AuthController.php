@@ -93,6 +93,18 @@ class AuthController extends BaseController
         $isAdmin = $userRoleModel->isAdmin($user->id);
         $permissions = $userRoleModel->getPermissionsForUser($user->id);
 
+        // Disparar sincronización en segundo plano (no bloqueante)
+        try {
+            $configModel = new \App\Models\OdooConfigModel();
+            $config = $configModel->findByUserId($user->id);
+            if ($config) {
+                \App\Services\BackgroundSyncService::trigger($user->id);
+            }
+        } catch (\Exception $e) {
+            // No bloquear el login si el sync falla
+            log_message('error', "Background sync trigger failed for {$user->id}: {$e->getMessage()}");
+        }
+
         return $this->response
             ->setStatusCode(200)
             ->setJSON([

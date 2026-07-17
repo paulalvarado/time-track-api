@@ -51,6 +51,8 @@ $routes->post('/api/sync/projects/(:num)/tasks', 'SyncController::createTask/$1'
 $routes->put('/api/sync/projects/(:num)/tasks/(:num)', 'SyncController::updateTask/$1/$2', ['filter' => ['auth', 'permission:tasks.update']]);
 $routes->delete('/api/sync/projects/(:num)/tasks/(:num)', 'SyncController::deleteTask/$1/$2', ['filter' => ['auth', 'permission:tasks.delete']]);
 $routes->get('/api/sync/projects/(:num)/tasks/(:num)/timesheets', 'SyncController::listTimesheets/$1/$2', ['filter' => ['auth', 'permission:timesheets.list']]);
+$routes->post('/api/sync/trigger', 'SyncController::triggerSync', ['filter' => ['auth', 'permission:timesheets.view_hours']]);
+$routes->get('/api/sync/progress', 'SyncController::syncProgress', ['filter' => ['auth', 'permission:timesheets.view_hours']]);
 $routes->get('/api/sync/hours', 'SyncController::totalHours', ['filter' => ['auth', 'permission:timesheets.view_hours']]);
 $routes->get('/api/sync/hours-by-employee/(:num)', 'SyncController::hoursByEmployee/$1', ['filter' => ['auth', 'permission:timesheets.view_hours_by_employee']]);
 $routes->get('/api/sync/status', 'SyncController::status', ['filter' => ['auth']]);

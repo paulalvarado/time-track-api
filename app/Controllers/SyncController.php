@@ -866,6 +866,59 @@ class SyncController extends BaseController
         return $this->respondSuccess(['ok' => true, 'message' => 'Task deleted']);
     }
 
+    /**
+     * POST /api/sync/trigger
+     * Dispara la sincronización en segundo plano para el usuario actual.
+     */
+    public function triggerSync()
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        try {
+            $progress = \App\Services\BackgroundSyncService::trigger($userId);
+            return $this->respondSuccess([
+                'progressId' => $progress->id,
+                'status'     => $progress->status,
+                'progress'   => (int) $progress->progress,
+            ]);
+        } catch (\Exception $e) {
+            return $this->respondError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/sync/progress
+     * Retorna el progreso de la sincronización para el usuario actual.
+     */
+    public function syncProgress()
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return $this->respondUnauthorized();
+        }
+
+        $progressModel = new \App\Models\SyncProgressModel();
+        $progress = $progressModel->findLatestByUser($userId);
+
+        if (!$progress) {
+            return $this->respondSuccess([
+                'status'   => 'idle',
+                'progress' => 0,
+                'log'      => '',
+            ]);
+        }
+
+        return $this->respondSuccess([
+            'id'       => $progress->id,
+            'status'   => $progress->status,
+            'progress' => (int) $progress->progress,
+            'log'      => $progress->log ?? '',
+        ]);
+    }
+
     private static function castBool($value): bool
     {
         if (is_bool($value)) return $value;
