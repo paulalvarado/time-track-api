@@ -51,6 +51,26 @@ class SyncService
                     'odooUserId' => (!empty($project['user_id']) && is_array($project['user_id'])) ? (int) $project['user_id'][0] : null,
                 ]);
             }
+
+            // Resolve owner names from Odoo and persist locally
+            $ownerIds = array_filter(array_unique(array_map(function ($p) {
+                return (!empty($p['user_id']) && is_array($p['user_id'])) ? (int) $p['user_id'][0] : null;
+            }, $odooProjects)));
+            if (!empty($ownerIds)) {
+                try {
+                    $ownerNames = $odoo->fetchUserNames(array_values($ownerIds));
+                    foreach ($odooProjects as $project) {
+                        $oid = (!empty($project['user_id']) && is_array($project['user_id'])) ? (int) $project['user_id'][0] : null;
+                        if ($oid && isset($ownerNames[$oid])) {
+                            $syncProjectModel->upsert($project['id'], $odooConfigId, [
+                                'ownerName' => $ownerNames[$oid],
+                            ]);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // Non-critical: ownerNames will be missing until next sync
+                }
+            }
             echo "  [1/5] Projects saved to local DB\n";
 
             $projectIds = array_column($odooProjects, 'id');

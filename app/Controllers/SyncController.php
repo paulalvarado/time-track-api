@@ -44,7 +44,7 @@ class SyncController extends BaseController
             if ($sinceDate) {
                 $db = \Config\Database::connect();
                 $builder = $db->table('public.syncproject');
-                $builder->select('"odooId", name, color, "odooUserId", "updatedAt"');
+                $builder->select('"odooId", name, color, "odooUserId", "updatedAt", "ownerName"');
                 $builder->where('"odooConfigId"', $config->id);
                 $builder->where('"updatedAt" >', $sinceDate);
                 $changed = $builder->get()->getResult();
@@ -74,17 +74,25 @@ class SyncController extends BaseController
             });
         }
 
+        // Owner names are already stored locally during sync — no Odoo call needed
         $projects = array_map(function ($p) use ($odooUid) {
             $pUserOdooId = $p->odooUserId !== null ? (int) $p->odooUserId : null;
             $p->isMine = ($odooUid !== null && $pUserOdooId === $odooUid);
             return $p;
         }, $projects);
 
-        usort($projects, function ($a, $b) {
-            if ($a->isMine && !$b->isMine) return -1;
-            if (!$a->isMine && $b->isMine) return 1;
-            return strcasecmp($a->name, $b->name);
-        });
+        // Admin: orden alfabético sin priorizar "mis proyectos"
+        if ($this->request->isAdmin ?? false) {
+            usort($projects, function ($a, $b) {
+                return strcasecmp($a->name, $b->name);
+            });
+        } else {
+            usort($projects, function ($a, $b) {
+                if ($a->isMine && !$b->isMine) return -1;
+                if (!$a->isMine && $b->isMine) return 1;
+                return strcasecmp($a->name, $b->name);
+            });
+        }
 
         return $this->respondSuccess([
             'projects' => $projects,
@@ -107,40 +115,24 @@ class SyncController extends BaseController
         }
 
         // Get distinct odooUserId from syncproject
+        // Use locally cached ownerName from sync — no Odoo call needed
         $db = \Config\Database::connect();
         $builder = $db->table('public.syncproject');
-        $builder->distinct()->select('"odooUserId"');
+        $builder->select('"odooUserId", "ownerName"');
         $builder->where('"odooConfigId"', $config->id);
         $builder->where('"odooUserId" IS NOT NULL');
+        $builder->distinct();
         $rows = $builder->get()->getResult();
 
-        $userIds = array_map(function ($r) {
-            return (int) $r->odooUserId;
-        }, $rows);
-
-        if (empty($userIds)) {
-            return $this->respondSuccess(['users' => []]);
-        }
-
-        // Get user names from Odoo
-        try {
-            $odoo = new OdooService([
-                'url' => $config->url,
-                'dbName' => $config->dbName,
-                'username' => $config->username,
-                'apiKey' => $config->apiKey,
-            ]);
-            $odoo->authenticate();
-            $userNames = $odoo->fetchUserNames($userIds);
-        } catch (\Throwable $e) {
-            $userNames = [];
-        }
-
+        $seen = [];
         $users = [];
-        foreach ($userIds as $id) {
+        foreach ($rows as $r) {
+            $id = (int) $r->odooUserId;
+            if (isset($seen[$id])) continue;
+            $seen[$id] = true;
             $users[] = [
                 'odooUserId' => $id,
-                'name' => $userNames[$id] ?? ('User #' . $id),
+                'name' => $r->ownerName ?? ('User #' . $id),
             ];
         }
 

@@ -48,11 +48,18 @@ class ProjectController extends BaseController
                 return $p;
             }, $projects);
 
-            usort($enriched, function ($a, $b) {
-                if ($a->isMine && !$b->isMine) return -1;
-                if (!$a->isMine && $b->isMine) return 1;
-                return strcasecmp($a->name, $b->name);
-            });
+            // Admin: orden alfabético sin priorizar "mis proyectos"
+            if ($this->request->isAdmin ?? false) {
+                usort($enriched, function ($a, $b) {
+                    return strcasecmp($a->name, $b->name);
+                });
+            } else {
+                usort($enriched, function ($a, $b) {
+                    if ($a->isMine && !$b->isMine) return -1;
+                    if (!$a->isMine && $b->isMine) return 1;
+                    return strcasecmp($a->name, $b->name);
+                });
+            }
 
             return $this->respondSuccess(['projects' => $enriched, 'odooConnected' => true]);
         } catch (\Exception $e) {

@@ -74,6 +74,11 @@ $routes->post('/api/admin/roles', 'AdminController::createRole', ['filter' => ['
 $routes->put('/api/admin/roles/(:any)', 'AdminController::updateRole/$1', ['filter' => ['auth', 'permission:admin.manage_roles']]);
 $routes->delete('/api/admin/roles/(:any)', 'AdminController::deleteRole/$1', ['filter' => ['auth', 'permission:admin.manage_roles']]);
 
+$routes->get('/api/admin/stats', 'AdminController::stats', ['filter' => ['auth', 'permission:admin.manage_users']]);
+$routes->get('/api/admin/timesheets/export', 'AdminController::exportTimesheets', ['filter' => ['auth', 'permission:odoo.view_timesheets_all']]);
+$routes->get('/api/admin/timesheets', 'AdminController::listTimesheets', ['filter' => ['auth', 'permission:odoo.view_timesheets_all']]);
+$routes->get('/api/admin/timesheets/filters', 'AdminController::timesheetFilters', ['filter' => ['auth', 'permission:odoo.view_timesheets_all']]);
+
 $routes->get('/api/admin/permissions', 'AdminController::listPermissions', ['filter' => ['auth', 'permission:admin.manage_permissions']]);
 $routes->get('/api/admin/roles/(:any)/permissions', 'AdminController::getRolePermissions/$1', ['filter' => ['auth', 'permission:admin.manage_permissions']]);
 $routes->put('/api/admin/roles/(:any)/permissions', 'AdminController::setRolePermissions/$1', ['filter' => ['auth', 'permission:admin.manage_permissions']]);

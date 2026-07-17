@@ -128,10 +128,9 @@ class AuthController extends BaseController
         $configModel = new OdooConfigModel();
         $config = $configModel->findByUserId($userId);
 
-        // Verificar si es admin
-        $userRoleModel = new \App\Models\UserRoleModel();
-        $isAdmin = $userRoleModel->isAdmin($userId);
-        $permissions = $userRoleModel->getPermissionsForUser($userId);
+        // Usar permisos ya cargados por AuthFilter — evita queries redundantes
+        $isAdmin = $this->request->isAdmin ?? false;
+        $permissions = $this->request->userPermissions ?? [];
 
         return $this->respondSuccess([
             'user' => [

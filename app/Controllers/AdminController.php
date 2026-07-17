@@ -277,6 +277,375 @@ class AdminController extends BaseController
 
     // ─── HELPERS ───────────────────────────────────────────────
 
+    // ─── STATS ─────────────────────────────────────────────────
+
+    /**
+     * GET /api/admin/stats
+     * KPIs globales del sistema (solo admin).
+     */
+    public function stats()
+    {
+        $db = \Config\Database::connect();
+
+        // Total de proyectos desde la base local (syncproject)
+        $totalProjects = $db->table('public.syncproject')->countAllResults();
+
+        // Total de usuarios registrados
+        $totalUsers = $db->table('"User"')->countAllResults();
+
+        // Total de tareas desde la base local
+        $totalTasks = $db->table('public.synctask')->countAllResults();
+
+        // Total de partes de hora desde la base local
+        $totalTimesheets = $db->table('public.synctimesheet')->countAllResults();
+
+        // Configuraciones Odoo activas
+        $totalOdooConfigs = $db->table('"OdooConfig"')->countAllResults();
+
+        return $this->respondSuccess([
+            'stats' => [
+                'totalProjects'   => (int) $totalProjects,
+                'totalUsers'      => (int) $totalUsers,
+                'totalTasks'      => (int) $totalTasks,
+                'totalTimesheets' => (int) $totalTimesheets,
+                'totalOdooConfigs'=> (int) $totalOdooConfigs,
+            ],
+        ]);
+    }
+
+    // ─── TIMESHEETS ────────────────────────────────────────────
+
+    /**
+     * GET /api/admin/timesheets
+     * Lista todos los timesheets de la BD local con filtros.
+     * Query params: ?period=day|week|month|year&employeeId=&projectId=
+     */
+    public function listTimesheets()
+    {
+        $period = $this->request->getGet('period') ?? 'week';
+        $employeeId = $this->request->getGet('employeeId');
+        $projectId = $this->request->getGet('projectId');
+        $page = (int) ($this->request->getGet('page') ?? 0);
+        $pageSize = (int) ($this->request->getGet('pageSize') ?? 20);
+
+        $page = max(0, $page);
+        $pageSize = max(1, min(100, $pageSize));
+        $offset = $page * $pageSize;
+
+        $db = \Config\Database::connect();
+
+        $since = null;
+        switch ($period) {
+            case 'day':
+                $since = date('Y-m-d 00:00:00');
+                break;
+            case 'week':
+                $since = date('Y-m-d 00:00:00', strtotime('monday this week'));
+                break;
+            case 'month':
+                $since = date('Y-m-01 00:00:00');
+                break;
+            case 'year':
+                $since = date('Y-01-01 00:00:00');
+                break;
+        }
+
+        // ── WHERE clauses ──
+        $where = 'WHERE 1=1';
+
+        if ($since) {
+            $where .= ' AND ts."date" >= ' . $db->escape($since);
+        }
+
+        if ($employeeId) {
+            $where .= ' AND ts."employeeOdooId" = ' . (int) $employeeId;
+        }
+
+        if ($projectId) {
+            $where .= ' AND pr."odooId" = ' . (int) $projectId;
+        }
+
+        $from = 'FROM public.synctimesheet ts
+            LEFT JOIN public.synctask tk ON tk."odooId" = ts."taskOdooId" AND tk."odooConfigId" = ts."odooConfigId"
+            LEFT JOIN public.syncproject pr ON pr."odooId" = tk."projectOdooId" AND pr."odooConfigId" = ts."odooConfigId"';
+
+        // ── Total count ──
+        $countSql = "SELECT COUNT(*) as total $from $where";
+        $countResult = $db->query($countSql)->getRow();
+        $total = (int) ($countResult->total ?? 0);
+        $totalPages = $total > 0 ? (int) ceil($total / $pageSize) : 1;
+
+        // ── Total hours (without pagination) ──
+        $hoursSql = "SELECT COALESCE(SUM(ts.\"unitAmount\"), 0) as totalHours $from $where";
+        $hoursResult = $db->query($hoursSql)->getRow();
+        $totalHours = (float) ($hoursResult->totalhours ?? 0);
+
+        // ── Data query with pagination ──
+        $sql = "SELECT ts.id, ts.\"odooId\" as odooId, ts.name as description, ts.\"unitAmount\" as hours, ts.date, ts.\"taskOdooId\" as taskId, ts.\"employeeOdooId\" as employeeId, ts.\"userOdooId\" as userId, ts.\"odooConfigId\" as configId, tk.name as taskName, pr.\"odooId\" as projectId, pr.name as projectName $from $where ORDER BY ts.\"date\" DESC, ts.\"unitAmount\" DESC LIMIT $pageSize OFFSET $offset";
+
+        $rows = $db->query($sql)->getResult();
+
+        // Recoger todos los employeeOdooId únicos para resolver nombres
+        $empIds = [];
+        foreach ($rows as $r) {
+            if ($r->employeeid) {
+                $empIds[(int) $r->employeeid] = true;
+            }
+        }
+
+        // Resolver nombres desde catálogo (empleados)
+        $empNames = [];
+        if (!empty($empIds)) {
+            $keys = implode(',', array_map(fn($id) => $db->escape((string) $id), array_keys($empIds)));
+            $catSql = 'SELECT DISTINCT ci."key", ci.value FROM "CatalogItem" ci INNER JOIN "Catalog" c ON c.id = ci."catalogId" WHERE c.name = \'employees\' AND ci."key" IN (' . $keys . ')';
+            $catalogItems = $db->query($catSql)->getResult();
+            foreach ($catalogItems as $ci) {
+                $empNames[$ci->key] = $ci->value;
+            }
+        }
+
+        $timesheets = array_map(function ($r) use ($empNames) {
+            $empId = $r->employeeid ? (int) $r->employeeid : null;
+            return [
+                'id'           => $r->id ?? $r->odooId,
+                'description'  => $r->description ?? '',
+                'hours'        => (float) ($r->hours ?? 0),
+                'date'         => $r->date,
+                'taskId'       => $r->taskid ? (int) $r->taskid : null,
+                'taskName'     => $r->taskname ?? ('Task #' . $r->taskid),
+                'projectId'    => $r->projectid ? (int) $r->projectid : null,
+                'projectName'  => $r->projectname ?? ('Project #' . $r->projectid),
+                'employeeId'   => $empId,
+                'employeeName' => $empId ? ($empNames[(string) $empId] ?? ('Employee #' . $empId)) : 'Unknown',
+            ];
+        }, $rows);
+
+        return $this->respondSuccess([
+            'timesheets' => $timesheets,
+            'total'      => $total,
+            'totalPages' => $totalPages,
+            'page'       => $page,
+            'pageSize'   => $pageSize,
+            'totalHours' => $totalHours,
+        ]);
+    }
+
+    /**
+     * GET /api/admin/timesheets/export?format=xlsx|csv&period=...&employeeId=...&projectId=...
+     * Exporta timesheets filtrados como archivo Excel o CSV.
+     */
+    public function exportTimesheets()
+    {
+        $format = $this->request->getGet('format') ?? 'xlsx';
+        $period = $this->request->getGet('period') ?? 'week';
+        $employeeId = $this->request->getGet('employeeId');
+        $projectId = $this->request->getGet('projectId');
+
+        $db = \Config\Database::connect();
+
+        $since = null;
+        switch ($period) {
+            case 'day':
+                $since = date('Y-m-d 00:00:00');
+                break;
+            case 'week':
+                $since = date('Y-m-d 00:00:00', strtotime('monday this week'));
+                break;
+            case 'month':
+                $since = date('Y-m-01 00:00:00');
+                break;
+            case 'year':
+                $since = date('Y-01-01 00:00:00');
+                break;
+        }
+
+        $where = 'WHERE 1=1';
+        if ($since) {
+            $where .= ' AND ts."date" >= ' . $db->escape($since);
+        }
+        if ($employeeId) {
+            $where .= ' AND ts."employeeOdooId" = ' . (int) $employeeId;
+        }
+        if ($projectId) {
+            $where .= ' AND pr."odooId" = ' . (int) $projectId;
+        }
+
+        $from = 'FROM public.synctimesheet ts
+            LEFT JOIN public.synctask tk ON tk."odooId" = ts."taskOdooId" AND tk."odooConfigId" = ts."odooConfigId"
+            LEFT JOIN public.syncproject pr ON pr."odooId" = tk."projectOdooId" AND pr."odooConfigId" = ts."odooConfigId"';
+
+        $sql = "SELECT ts.id, ts.name as description, ts.\"unitAmount\" as hours, ts.date, ts.\"taskOdooId\" as taskId, tk.name as taskName, pr.name as projectName, ts.\"employeeOdooId\" as employeeId $from $where ORDER BY ts.\"date\" DESC, ts.\"unitAmount\" DESC";
+
+        $rows = $db->query($sql)->getResult();
+
+        // Resolver nombres de empleados
+        $empIds = [];
+        foreach ($rows as $r) {
+            if ($r->employeeid) {
+                $empIds[(int) $r->employeeid] = true;
+            }
+        }
+        $empNames = [];
+        if (!empty($empIds)) {
+            $keys = implode(',', array_map(fn($id) => $db->escape((string) $id), array_keys($empIds)));
+            $catSql = 'SELECT DISTINCT ci."key", ci.value FROM "CatalogItem" ci INNER JOIN "Catalog" c ON c.id = ci."catalogId" WHERE c.name = \'employees\' AND ci."key" IN (' . $keys . ')';
+            $catalogItems = $db->query($catSql)->getResult();
+            foreach ($catalogItems as $ci) {
+                $empNames[$ci->key] = $ci->value;
+            }
+        }
+
+        // Mapear datos
+        $data = array_map(function ($r) use ($empNames) {
+            $empId = $r->employeeid ? (int) $r->employeeid : null;
+            return [
+                'Fecha'      => $r->date ? date('d/m/Y', strtotime($r->date)) : '-',
+                'Empleado'   => $empId ? ($empNames[(string) $empId] ?? ('Employee #' . $empId)) : 'Unknown',
+                'Proyecto'   => $r->projectname ?? ('Project #' . $r->taskid),
+                'Tarea'      => $r->taskname ?? ('Task #' . $r->taskid),
+                'Descripción' => $r->description ?? '',
+                'Horas'      => (float) ($r->hours ?? 0),
+            ];
+        }, $rows);
+
+        if ($format === 'csv') {
+            return $this->exportCsv($data);
+        }
+
+        return $this->exportXlsx($data);
+    }
+
+    /**
+     * Genera y descarga un archivo CSV.
+     */
+    private function exportCsv(array $data): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $filename = 'timesheets_' . date('Ymd_His') . '.csv';
+
+        // Escribir CSV en un buffer
+        $output = fopen('php://temp', 'r+');
+        // BOM para Excel (UTF-8)
+        fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+        // Headers
+        if (!empty($data)) {
+            fputcsv($output, array_keys($data[0]), ';');
+        }
+
+        // Rows
+        foreach ($data as $row) {
+            fputcsv($output, $row, ';');
+        }
+
+        rewind($output);
+        $csv = stream_get_contents($output);
+        fclose($output);
+
+        return $this->response
+            ->setStatusCode(200)
+            ->setContentType('text/csv; charset=UTF-8')
+            ->setHeader('Content-Disposition', 'attachment; filename="' . $filename . '"')
+            ->setBody($csv);
+    }
+
+    /**
+     * Genera y descarga un archivo Excel (XLSX) usando PhpSpreadsheet.
+     */
+    private function exportXlsx(array $data): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Timesheets');
+
+        // Estilo para headers
+        $headerStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['rgb' => '171717']],
+        ];
+
+        // Headers
+        $colIdx = 1;
+        if (!empty($data)) {
+            foreach (array_keys($data[0]) as $header) {
+                $cell = $sheet->getCell([$colIdx, 1]);
+                $cell->setValue($header);
+                $sheet->getStyle([$colIdx, 1])->applyFromArray($headerStyle);
+                $sheet->getColumnDimensionByColumn($colIdx)->setAutoSize(true);
+                $colIdx++;
+            }
+        }
+
+        // Rows
+        $rowNum = 2;
+        foreach ($data as $row) {
+            $colIdx = 1;
+            foreach ($row as $value) {
+                $cell = $sheet->getCell([$colIdx, $rowNum]);
+                $cell->setValue($value);
+                $colIdx++;
+            }
+            $rowNum++;
+        }
+
+        $filename = 'timesheets_' . date('Ymd_His') . '.xlsx';
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        ob_start();
+        $writer->save('php://output');
+        $xlsx = ob_get_clean();
+
+        return $this->response
+            ->setStatusCode(200)
+            ->setContentType('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            ->setHeader('Content-Disposition', 'attachment; filename="' . $filename . '"')
+            ->setBody($xlsx);
+    }
+
+    /**
+     * GET /api/admin/timesheets/filters
+     * Devuelve listas de empleados y proyectos disponibles para los filtros.
+     */
+    public function timesheetFilters()
+    {
+        $db = \Config\Database::connect();
+
+        // Empleados con timesheets
+        $empRows = $db->query('SELECT DISTINCT ts."employeeOdooId" as id FROM public.synctimesheet ts WHERE ts."employeeOdooId" IS NOT NULL')->getResult();
+
+        // Resolver nombres desde catálogo
+        $employeeList = [];
+        foreach ($empRows as $e) {
+            $empId = (int) $e->id;
+            $nameRow = $db->query('SELECT ci.value FROM "CatalogItem" ci INNER JOIN "Catalog" c ON c.id = ci."catalogId" WHERE c.name = \'employees\' AND ci."key" = ' . $db->escape((string) $empId) . ' LIMIT 1')->getRow();
+            $employeeList[] = [
+                'id'   => $empId,
+                'name' => $nameRow->value ?? ('Employee #' . $empId),
+            ];
+        }
+        usort($employeeList, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+        // Deduplicar por id
+        $seen = [];
+        $employeeList = array_filter($employeeList, function ($e) use (&$seen) {
+            if (isset($seen[$e['id']])) return false;
+            $seen[$e['id']] = true;
+            return true;
+        });
+        $employeeList = array_values($employeeList);
+
+        // Proyectos con timesheets
+        $projRows = $db->query('SELECT DISTINCT pr."odooId" as id, pr.name FROM public.synctimesheet ts INNER JOIN public.synctask tk ON tk."odooId" = ts."taskOdooId" AND tk."odooConfigId" = ts."odooConfigId" INNER JOIN public.syncproject pr ON pr."odooId" = tk."projectOdooId" AND pr."odooConfigId" = ts."odooConfigId" WHERE pr."odooId" IS NOT NULL ORDER BY pr.name ASC')->getResult();
+
+        return $this->respondSuccess([
+            'employees' => $employeeList,
+            'projects' => array_map(fn($p) => [
+                'id'   => (int) $p->id,
+                'name' => $p->name ?? ('Project #' . $p->id),
+            ], $projRows),
+        ]);
+    }
+
+    // ─── HELPERS ───────────────────────────────────────────────
+
     private function countAdminUsers(): int
     {
         $db = \Config\Database::connect();
